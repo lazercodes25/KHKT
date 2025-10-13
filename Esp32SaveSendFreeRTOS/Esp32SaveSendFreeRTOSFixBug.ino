@@ -1,4 +1,6 @@
-#include <Arduino.h>
+#include "Arduino.h"
+#include "DFRobotDFPlayerMini.h"
+#include <HardwareSerial.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include "FS.h"
@@ -6,29 +8,34 @@
 #include "driver/i2s.h"
 #include <ArduinoJson.h>
 
+// ==============================
+// ⚙️ Cấu hình phần cứng
+// ==============================
 #define I2S_WS 25
 #define I2S_SD 22
 #define I2S_SCK 26
 #define I2S_PORT I2S_NUM_0
 #define SD_CS 5
-#define RECORD_TIME 20000
+#define RECORD_TIME 10000
 #define SAMPLE_RATE 16000
 
 // ==== WIFI & SERVER ====
-const char* ssid = "DaiDuy";
-const char* password = "khongnho";
+const char* ssid = "Thu Thanh 3";
+const char* password = "ThuThanh345@";
 const char* host = "dominical-astrid-unamusingly.ngrok-free.dev";
 const int port = 80;
 const char* path = "/upload";
 
-
+// ==== DFPlayer ====
+HardwareSerial mySerial(1);
+DFRobotDFPlayerMini mp3;
 
 // ==== Queue chứa tên file cần upload ====
 QueueHandle_t uploadQueue;
 
-// ====================================
-// ==== GHI ÂM ====
-// ====================================
+// ==============================
+// 📀 GHI ÂM
+// ==============================
 void writeWavHeader(File file, uint32_t sampleRate, uint32_t dataSize) {
   uint32_t fileSize = dataSize + 36;
   byte header[44] = {
@@ -92,9 +99,9 @@ bool recordAudio(const char* filename) {
   return true;
 }
 
-// ====================================
-// ==== UPLOAD ====
-// ====================================
+// ==============================
+// 🌐 UPLOAD + PHÁT ÂM THANH
+// ==============================
 bool uploadFile(const char* filename, const char* formName) {
   File file = SD.open(filename);
   if (!file) return false;
@@ -110,7 +117,6 @@ bool uploadFile(const char* filename, const char* formName) {
   int contentLength = start_req.length() + file.size() + end_req.length();
 
   WiFiClient client;
-
 
   Serial.printf("\n🔗 Kết nối tới server %s:%d ...\n", host, port);
   int retries = 0;
@@ -146,53 +152,48 @@ bool uploadFile(const char* filename, const char* formName) {
   unsigned long tStart = millis();
   bool inBody = false;
   String response = "";
+
   // Đọc phản hồi server
   while (client.connected()) {
-  while (client.available()) {
-    String line = client.readStringUntil('\n');
-
-    // Bỏ qua header, tìm dòng trống giữa header và body
-    if (line == "\r" || line == "\n" || line.length() == 0) {
-      inBody = true;
-      continue;
+    while (client.available()) {
+      String line = client.readStringUntil('\n');
+      if (line == "\r" || line == "\n" || line.length() == 0) {
+        inBody = true;
+        continue;
+      }
+      if (inBody) {
+        response += line;
+      }
     }
-
-    // Khi tới phần body thì lấy toàn bộ nội dung
-    if (inBody) {
-      response += line;
+    if (millis() - tStart > 10000) {
+      Serial.println("⚠️ Timeout khi chờ phản hồi server!");
+      break;
     }
   }
 
-  // timeout 10s
-  if (millis() - tStart > 10000) {
-    Serial.println("⚠️ Timeout khi chờ phản hồi server!");
-    break;
-  }
-}
-  // Phân tích JSON
   response.trim(); 
   int violent = response.toInt();
+
   Serial.println("---- Server response ----");
   Serial.println(response);
-  Serial.println(violent);
+  Serial.printf("Violent = %d\n", violent);
   Serial.println("-------------------------");
+
   if (violent == 1) {
     Serial.println("⚠️ Cảnh báo: Phát hiện âm thanh bạo lực!");
+    mp3.play(1);   // 🔊 PHÁT ÂM THANH 1
   } else {
     Serial.println("✅ An toàn: Không phát hiện âm thanh bạo lực.");
   }
 
   client.stop();
   Serial.println("✅ Upload xong!");
-
   return true;
 }
 
-// ====================================
-// ==== TASKS ====
-// ====================================
-
-// Task ghi âm (Core 1)
+// ==============================
+// 🎙️ TASKS
+// ==============================
 void TaskRecord(void* param) {
   int index = 1;
   while (true) {
@@ -205,20 +206,17 @@ void TaskRecord(void* param) {
     }
     index++;
     if (index > 9999) index = 1;
-    vTaskDelay(pdMS_TO_TICKS(5000));  // nghỉ 3 giây
+    vTaskDelay(pdMS_TO_TICKS(5000));
     yield();
   }
 }
 
-// Task upload (Core 0)
 void TaskUpload(void* param) {
   char filename[20];
-  char formName[20];
-  //sprintf(filename, "/record%d.wav", index);
-  sprintf(formName, "record%d.wav", index);
   while (true) {
     if (xQueueReceive(uploadQueue, &filename, portMAX_DELAY) == pdTRUE) {
-
+      char formName[20];
+      sprintf(formName, "%s", filename + 1); // bỏ dấu "/" đầu
       Serial.printf("⬆️ Bắt đầu upload %s...\n", filename);
       if (uploadFile(filename, formName)) {
         SD.remove(filename);
@@ -228,23 +226,37 @@ void TaskUpload(void* param) {
       }
     }
   }
-  vTaskDelay(pdMS_TO_TICKS(20000));
-  yield();
 }
 
-// ====================================
-// ==== SETUP ====
-// ====================================
+// ==============================
+// ⚙️ SETUP
+// ==============================
 void setup() {
   Serial.begin(115200);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) delay(500);
-  Serial.println("✅ WiFi OK!");
-  if (!SD.begin(SD_CS)) {
-    Serial.println("SD lỗi!");
-    while (1)
-      ;
+
+  // ==== DFPlayer ====
+  mySerial.begin(9600, SERIAL_8N1, 27, 14);
+  if (!mp3.begin(mySerial)) {
+    Serial.println("❌ Không kết nối được DFPlayer!");
+    while (1);
   }
+  mp3.volume(25); // Âm lượng 0–30
+  Serial.println("✅ DFPlayer sẵn sàng!");
+
+  // ==== WiFi ====
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n✅ WiFi OK!");
+
+  // ==== SD Card ====
+  if (!SD.begin(SD_CS)) {
+    Serial.println("❌ SD lỗi!");
+    while (1);
+  }
+
   setupI2S();
 
   uploadQueue = xQueueCreate(10, sizeof(char[20]));
@@ -253,7 +265,5 @@ void setup() {
 }
 
 void loop() {
-  // Sau này bạn có thể đọc cảm biến, xử lý dữ liệu môi trường ở đây.
-  // Không bị ảnh hưởng bởi upload hoặc ghi âm.
-  //delay(1000);
+  // xử lý khác (nếu có)
 }
