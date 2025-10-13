@@ -6,7 +6,6 @@
 #include "FS.h"
 #include "SD.h"
 #include "driver/i2s.h"
-#include <ArduinoJson.h>
 
 // ==============================
 // ⚙️ Cấu hình phần cứng
@@ -18,13 +17,15 @@
 #define SD_CS 5
 #define RECORD_TIME 10000
 #define SAMPLE_RATE 16000
-
+#define SENSOR_PIN 34
+#define RELAY_PIN 12
 // ==== WIFI & SERVER ====
 const char* ssid = "Thu Thanh 3";
 const char* password = "ThuThanh345@";
 const char* host = "dominical-astrid-unamusingly.ngrok-free.dev";
 const int port = 80;
 const char* path = "/upload";
+volatile bool isPlaying = false;
 
 // ==== DFPlayer ====
 HardwareSerial mySerial(1);
@@ -144,6 +145,7 @@ bool uploadFile(const char* filename, const char* formName) {
   while (file.available()) {
     size_t n = file.read(buf, sizeof(buf));
     client.write(buf, n);
+    vTaskDelay(1);
   }
   client.print(end_req);
   file.close();
@@ -165,13 +167,14 @@ bool uploadFile(const char* filename, const char* formName) {
         response += line;
       }
     }
+    vTaskDelay(1);
     if (millis() - tStart > 10000) {
       Serial.println("⚠️ Timeout khi chờ phản hồi server!");
       break;
     }
   }
 
-  response.trim(); 
+  response.trim();
   int violent = response.toInt();
 
   Serial.println("---- Server response ----");
@@ -181,7 +184,8 @@ bool uploadFile(const char* filename, const char* formName) {
 
   if (violent == 1) {
     Serial.println("⚠️ Cảnh báo: Phát hiện âm thanh bạo lực!");
-    mp3.play(1);   // 🔊 PHÁT ÂM THANH 1
+    isPlaying = true;
+    mp3.play(1);  // 🔊 PHÁT ÂM THANH 1
   } else {
     Serial.println("✅ An toàn: Không phát hiện âm thanh bạo lực.");
   }
@@ -198,6 +202,10 @@ void TaskRecord(void* param) {
   int index = 1;
   while (true) {
     char filename[20];
+    while (isPlaying) {
+      Serial.println("⏸ DFPlayer đang phát -> tạm dừng ghi âm...");
+      vTaskDelay(pdMS_TO_TICKS(1000));
+    }
     sprintf(filename, "/record%d.wav", index);
     Serial.printf("🎙️ Ghi âm file %s ...\n", filename);
     if (recordAudio(filename)) {
@@ -206,7 +214,7 @@ void TaskRecord(void* param) {
     }
     index++;
     if (index > 9999) index = 1;
-    vTaskDelay(pdMS_TO_TICKS(5000));
+    vTaskDelay(pdMS_TO_TICKS(3000));
     yield();
   }
 }
@@ -216,7 +224,7 @@ void TaskUpload(void* param) {
   while (true) {
     if (xQueueReceive(uploadQueue, &filename, portMAX_DELAY) == pdTRUE) {
       char formName[20];
-      sprintf(formName, "%s", filename + 1); // bỏ dấu "/" đầu
+      sprintf(formName, "%s", filename + 1);  // bỏ dấu "/" đầu
       Serial.printf("⬆️ Bắt đầu upload %s...\n", filename);
       if (uploadFile(filename, formName)) {
         SD.remove(filename);
@@ -226,6 +234,8 @@ void TaskUpload(void* param) {
       }
     }
   }
+  vTaskDelay(pdMS_TO_TICKS(10000));
+  yield();
 }
 
 // ==============================
@@ -238,9 +248,10 @@ void setup() {
   mySerial.begin(9600, SERIAL_8N1, 27, 14);
   if (!mp3.begin(mySerial)) {
     Serial.println("❌ Không kết nối được DFPlayer!");
-    while (1);
+    while (1)
+      ;
   }
-  mp3.volume(25); // Âm lượng 0–30
+  mp3.volume(25);  // Âm lượng 0–30
   Serial.println("✅ DFPlayer sẵn sàng!");
 
   // ==== WiFi ====
@@ -254,10 +265,16 @@ void setup() {
   // ==== SD Card ====
   if (!SD.begin(SD_CS)) {
     Serial.println("❌ SD lỗi!");
-    while (1);
+    while (1)
+      ;
   }
 
   setupI2S();
+
+  pinMode(SENSOR_PIN, INPUT);   // cảm biến vật cản (input)
+  pinMode(RELAY_PIN, OUTPUT);   // relay (output)
+
+  digitalWrite(RELAY_PIN, LOW); // ban đầu tắt relay
 
   uploadQueue = xQueueCreate(10, sizeof(char[20]));
   xTaskCreatePinnedToCore(TaskRecord, "Record", 8192, NULL, 2, NULL, 1);
@@ -266,4 +283,19 @@ void setup() {
 
 void loop() {
   // xử lý khác (nếu có)
+  int sensorValue = digitalRead(SENSOR_PIN);
+  if (isPlaying && mp3.available()) {
+    uint8_t type = mp3.readType();
+    if (type == DFPlayerPlayFinished) {
+      Serial.println("🔇 DFPlayer đã phát xong!");
+      isPlaying = false;
+    }
+  }
+  if (sensorValue == LOW) {
+    digitalWrite(RELAY_PIN, HIGH); // bật relay
+  } else {
+    digitalWrite(RELAY_PIN, LOW);  // tắt relay
+
+  }
+  delay(100);
 }
