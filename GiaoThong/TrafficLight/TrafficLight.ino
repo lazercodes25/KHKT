@@ -5,7 +5,7 @@
 // ======================
 // ⚙️ WiFi Access Point
 // ======================
-const char* ssid = "TrafficLight_DienBienPhu";
+const char* ssid = "TrafficLight_DBP_NTP";
 const char* password = "12345678";
 // 🛣️ Khai báo tên tuyến đường
 String road0Name = "Điện Biên Phủ";
@@ -32,8 +32,8 @@ WebServer server(80);
 
 // ==== Bảng mã 7 đoạn ====
 const byte digitCodeStd[10] = {
-  B11000000,B11111001,B10100100,B10110000,B10011001,
-  B10010010,B10000010,B11111000,B10000000,B10010000
+  B11000000, B11111001, B10100100, B10110000, B10011001,
+  B10010010, B10000010, B11111000, B10000000, B10010000
 };
 
 bool INVERT = false;
@@ -46,18 +46,20 @@ const int RED_TIME = GREEN_TIME + YELLOW_TIME;
 const int PRIORITY_ADD = 15;
 
 // ==== Ưu tiên ====
-bool priorityPending[2] = {false, false};
-bool priorityNextCycle[2] = {false, false};
-bool priorityActive[2] = {false, false};
+bool priorityPending[2] = { false, false };
+bool priorityNextCycle[2] = { false, false };
+bool priorityActive[2] = { false, false };
 
 // ==== Pha ====
-enum Phase { GREEN, YELLOW, RED };
-const char* phaseName[] = {"GREEN", "YELLOW", "RED"};
+enum Phase { GREEN,
+             YELLOW,
+             RED };
+const char* phaseName[] = { "GREEN", "YELLOW", "RED" };
 
 Phase phaseG0 = GREEN;
 Phase phaseG1 = RED;
-unsigned long phaseStartTimeG[2] = {0, 0};
-int currentGroup = 0; // 0 = Bắc–Nam đang chạy
+unsigned long phaseStartTimeG[2] = { 0, 0 };
+int currentGroup = 0;  // 0 = Bắc–Nam đang chạy
 
 // ======================
 // ⚙️ Gửi dữ liệu 74HC595
@@ -87,19 +89,26 @@ void displayCountdown(int group0, int group1) {
   byte b = digitCodeStd[g0_ones];
   byte c = digitCodeStd[g1_tens];
   byte d = digitCodeStd[g1_ones];
-  sendBytesChain(d,c,b,a);
+  sendBytesChain(d, c, b, a);
 }
 
 // ==== Đèn RGB ====
 void setRGBColor(int group, Phase phase) {
-  bool r=false,g=false,b=false;
-  switch(phase){
-    case GREEN: b=true;break;
-    case YELLOW:g=true;break;
-    case RED:r=true;break;
+  bool r = false, g = false, b = false;
+  switch (phase) {
+    case GREEN: b = true; break;
+    case YELLOW: g = true; break;
+    case RED: r = true; break;
   }
-  if(group==0){digitalWrite(R1_PIN,r);digitalWrite(G1_PIN,g);digitalWrite(B1_PIN,b);}
-  else {digitalWrite(R2_PIN,r);digitalWrite(G2_PIN,g);digitalWrite(B2_PIN,b);}
+  if (group == 0) {
+    digitalWrite(R1_PIN, r);
+    digitalWrite(G1_PIN, g);
+    digitalWrite(B1_PIN, b);
+  } else {
+    digitalWrite(R2_PIN, r);
+    digitalWrite(G2_PIN, g);
+    digitalWrite(B2_PIN, b);
+  }
 }
 
 // ==== Ưu tiên ====
@@ -108,9 +117,8 @@ void requestPriority(int group) {
   if ((group == 0 && phaseG0 == RED) || (group == 0 && phaseG0 == YELLOW) || (group == 0 && phaseG0 == GREEN)) {
     priorityPending[group] = true;
     Serial.printf("⏳ Ưu tiên G%d sẽ áp dụng ở chu kỳ đỏ KẾ TIẾP\n", group);
-  } 
-  if ((group == 1 && phaseG1 == RED) || (group == 1 && phaseG1 == YELLOW) || (group == 1 && phaseG1 == GREEN))
-  {
+  }
+  if ((group == 1 && phaseG1 == RED) || (group == 1 && phaseG1 == YELLOW) || (group == 1 && phaseG1 == GREEN)) {
     priorityPending[group] = true;
     Serial.printf("✅ Ưu tiên G%d đã được đặt (áp dụng khi sang chu kỳ đỏ kế tiếp)\n", group);
   }
@@ -125,28 +133,40 @@ void nextPhase() {
   if (currentGroup == 0) {
     int gDur = GREEN_TIME + (priorityActive[0] ? PRIORITY_ADD : 0);
     if (phaseG0 == GREEN && e0 >= (unsigned)gDur) {
-      phaseG0 = YELLOW; phaseStartTimeG[0]=now;
-    }
-    else if (phaseG0 == YELLOW && e0 >= (unsigned)YELLOW_TIME) {
-      phaseG0=RED; phaseG1=GREEN;
-      phaseStartTimeG[0]=phaseStartTimeG[1]=now;
-      currentGroup=1;
-      priorityActive[0]=false;
-      if(priorityPending[1]){priorityActive[1]=true;priorityPending[1]=false;}
-      else if(priorityNextCycle[1]){priorityPending[1]=true;priorityNextCycle[1]=false;}
+      phaseG0 = YELLOW;
+      phaseStartTimeG[0] = now;
+    } else if (phaseG0 == YELLOW && e0 >= (unsigned)YELLOW_TIME) {
+      phaseG0 = RED;
+      phaseG1 = GREEN;
+      phaseStartTimeG[0] = phaseStartTimeG[1] = now;
+      currentGroup = 1;
+      priorityActive[0] = false;
+      if (priorityPending[1]) {
+        priorityActive[1] = true;
+        priorityPending[1] = false;
+      } else if (priorityNextCycle[1]) {
+        priorityPending[1] = true;
+        priorityNextCycle[1] = false;
+      }
     }
   } else {
     int gDur = GREEN_TIME + (priorityActive[1] ? PRIORITY_ADD : 0);
     if (phaseG1 == GREEN && e1 >= (unsigned)gDur) {
-      phaseG1 = YELLOW; phaseStartTimeG[1]=now;
-    }
-    else if (phaseG1 == YELLOW && e1 >= (unsigned)YELLOW_TIME) {
-      phaseG1=RED; phaseG0=GREEN;
-      phaseStartTimeG[0]=phaseStartTimeG[1]=now;
-      currentGroup=0;
-      priorityActive[1]=false;
-      if(priorityPending[0]){priorityActive[0]=true;priorityPending[0]=false;}
-      else if(priorityNextCycle[0]){priorityPending[0]=true;priorityNextCycle[0]=false;}
+      phaseG1 = YELLOW;
+      phaseStartTimeG[1] = now;
+    } else if (phaseG1 == YELLOW && e1 >= (unsigned)YELLOW_TIME) {
+      phaseG1 = RED;
+      phaseG0 = GREEN;
+      phaseStartTimeG[0] = phaseStartTimeG[1] = now;
+      currentGroup = 0;
+      priorityActive[1] = false;
+      if (priorityPending[0]) {
+        priorityActive[0] = true;
+        priorityPending[0] = false;
+      } else if (priorityNextCycle[0]) {
+        priorityPending[0] = true;
+        priorityNextCycle[0] = false;
+      }
     }
   }
 }
@@ -172,13 +192,11 @@ void handleStatus() {
   int rDur0 = RED_TIME + (priorityActive[1] ? PRIORITY_ADD : 0);
   int rDur1 = RED_TIME + (priorityActive[0] ? PRIORITY_ADD : 0);
 
-  int remaining0 = (phaseG0 == GREEN)  ? max(0, gDur0 - (int)e0) :
-                   (phaseG0 == YELLOW) ? max(0, YELLOW_TIME - (int)e0) :
-                                         max(0, rDur0 - (int)e0);
+  int remaining0 = (phaseG0 == GREEN) ? max(0, gDur0 - (int)e0) : (phaseG0 == YELLOW) ? max(0, YELLOW_TIME - (int)e0)
+                                                                                      : max(0, rDur0 - (int)e0);
 
-  int remaining1 = (phaseG1 == GREEN)  ? max(0, gDur1 - (int)e1) :
-                   (phaseG1 == YELLOW) ? max(0, YELLOW_TIME - (int)e1) :
-                                         max(0, rDur1 - (int)e1);
+  int remaining1 = (phaseG1 == GREEN) ? max(0, gDur1 - (int)e1) : (phaseG1 == YELLOW) ? max(0, YELLOW_TIME - (int)e1)
+                                                                                      : max(0, rDur1 - (int)e1);
 
   // Tạo JSON trả về
   JsonObject G0 = doc.createNestedObject("G0");
@@ -212,18 +230,43 @@ void handleSetRoad() {
     return;
   }
 
+
   int roadId = doc["roadId"] | -1;
-  if (roadId < 1 || roadId > 2) {
+  StaticJsonDocument<128> res;
+
+  if (roadId == 3) {
+    // ✅ Road 3 nghĩa là "ưu tiên hướng đang xanh"
+    int activeGroup = (phaseG0 == GREEN) ? 0 : (phaseG1 == GREEN) ? 1: -1;
+    if (activeGroup != -1) {
+      if (!priorityPending[activeGroup] && !priorityActive[activeGroup]) {
+        if (activeGroup == 0){
+          priorityPending[1] = true;
+        }
+        else
+        {
+          priorityPending[0] = true;
+        }
+        Serial.printf("⚡ Nhận roadId=3 → G%d đang GREEN → Đặt ưu tiên KẾ TIẾP!\n", activeGroup);
+        res["status"] = "priority set";
+        res["group"] = activeGroup;
+      } else {
+        Serial.printf("ℹ️ RoadId=3 → G%d đã có ưu tiên, bỏ qua\n", activeGroup);
+        res["status"] = "already active";
+        res["group"] = activeGroup;
+      }
+    } else {
+      res["status"] = "no active group";
+    }
+  } else if (roadId == 1 || roadId == 2) {
+    int group = roadId - 1;
+    requestPriority(group);
+    res["status"] = "ok";
+    res["group"] = group;
+  } else {
     server.send(400, "application/json", "{\"error\":\"Invalid roadId\"}");
     return;
   }
 
-  int group = roadId - 1;
-  requestPriority(group);
-
-  StaticJsonDocument<128> res;
-  res["status"] = "ok";
-  res["group"] = group;
   String json;
   serializeJson(res, json);
   server.send(200, "application/json", json);
@@ -251,7 +294,7 @@ void setup() {
   pinMode(B2_PIN, OUTPUT);
 
   unsigned long now = millis();
-  phaseStartTimeG[0]=phaseStartTimeG[1]=now;
+  phaseStartTimeG[0] = phaseStartTimeG[1] = now;
 
   // API routes
   server.on("/", handleRoot);
@@ -273,15 +316,17 @@ void loop() {
   setRGBColor(1, phaseG1);
 
   unsigned long now = millis();
-  unsigned long e0=(now-phaseStartTimeG[0])/1000;
-  unsigned long e1=(now-phaseStartTimeG[1])/1000;
-  int gDur0=GREEN_TIME+(priorityActive[0]?PRIORITY_ADD:0);
-  int gDur1=GREEN_TIME+(priorityActive[1]?PRIORITY_ADD:0);
-  int rDur0=RED_TIME+(priorityActive[1]?PRIORITY_ADD:0);
-  int rDur1=RED_TIME+(priorityActive[0]?PRIORITY_ADD:0);
+  unsigned long e0 = (now - phaseStartTimeG[0]) / 1000;
+  unsigned long e1 = (now - phaseStartTimeG[1]) / 1000;
+  int gDur0 = GREEN_TIME + (priorityActive[0] ? PRIORITY_ADD : 0);
+  int gDur1 = GREEN_TIME + (priorityActive[1] ? PRIORITY_ADD : 0);
+  int rDur0 = RED_TIME + (priorityActive[1] ? PRIORITY_ADD : 0);
+  int rDur1 = RED_TIME + (priorityActive[0] ? PRIORITY_ADD : 0);
 
-  int t0=(phaseG0==GREEN)?max(0,gDur0-(int)e0):(phaseG0==YELLOW)?max(0,YELLOW_TIME-(int)e0):max(0,rDur0-(int)e0);
-  int t1=(phaseG1==GREEN)?max(0,gDur1-(int)e1):(phaseG1==YELLOW)?max(0,YELLOW_TIME-(int)e1):max(0,rDur1-(int)e1);
+  int t0 = (phaseG0 == GREEN) ? max(0, gDur0 - (int)e0) : (phaseG0 == YELLOW) ? max(0, YELLOW_TIME - (int)e0)
+                                                                              : max(0, rDur0 - (int)e0);
+  int t1 = (phaseG1 == GREEN) ? max(0, gDur1 - (int)e1) : (phaseG1 == YELLOW) ? max(0, YELLOW_TIME - (int)e1)
+                                                                              : max(0, rDur1 - (int)e1);
 
   displayCountdown(t0, t1);
   delay(100);
