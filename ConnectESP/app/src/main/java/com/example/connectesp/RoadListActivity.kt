@@ -9,19 +9,18 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.snackbar.Snackbar
-import okhttp3.*
-import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
-import androidx.appcompat.app.AlertDialog
-import android.os.CountDownTimer
+import android.content.Context
+
 
 class RoadListActivity : AppCompatActivity() {
 
-    private val client = OkHttpClient()
-    private val espBaseUrl = "http://192.168.4.1" // IP ESP32 mặc định
+    private val espBaseUrl = "http://192.168.4.1" // IP ESP32
     private lateinit var layoutRoads: LinearLayout
     private lateinit var rootLayout: LinearLayout
+    private lateinit var prefs: android.content.SharedPreferences
+    private val PREF_KEY_G0_NAME = "road_g0_name"
+    private val PREF_KEY_G1_NAME = "road_g1_name"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,33 +28,60 @@ class RoadListActivity : AppCompatActivity() {
 
         layoutRoads = findViewById(R.id.layoutRoads)
         rootLayout = findViewById(R.id.rootLayout)
+        prefs = getSharedPreferences("roads", Context.MODE_PRIVATE)
         loadRoads()
+
+        // 🔁 Cập nhật trạng thái đèn liên tục 1s/lần
+        val handler = android.os.Handler()
+        val updateTask = object : Runnable {
+            override fun run() {
+                loadRoads()
+                handler.postDelayed(this, 1000)
+            }
+        }
+        handler.post(updateTask)
     }
 
-    // 🛰️ Lấy danh sách đường từ ESP32
+
+    // 🛰️ Lấy trạng thái đèn từ ESP32
     private fun loadRoads() {
-        EspApiClient.get("/roads") { response ->
+        EspApiClient.get("/status") { response ->
             try {
                 val json = JSONObject(response)
-                val roads = json.getJSONArray("roads")
-                showRoadCards(roads)
+
+                val g0 = json.getJSONObject("G0")
+                val g1 = json.getJSONObject("G1")
+                // 🧠 Lấy tên từ server hoặc SharedPreferences nếu không có
+                val name0 = g0.optString("name", prefs.getString(PREF_KEY_G0_NAME, "Bắc – Nam") ?: "Bắc – Nam")
+                val name1 = g1.optString("name", prefs.getString(PREF_KEY_G1_NAME, "Đông – Tây") ?: "Đông – Tây")
+
+                // 💾 Lưu lại nếu server trả tên khác
+                prefs.edit().apply {
+                    putString(PREF_KEY_G0_NAME, name0)
+                    putString(PREF_KEY_G1_NAME, name1)
+                    apply()
+                }
+
+                val roads = listOf(
+                    Road(0, g0.getString("name"), g0.getString("phase"), g0.getInt("remaining")),
+                    Road(1, g1.getString("name"), g1.getString("phase"), g1.getInt("remaining"))
+                )
+
+                runOnUiThread { showRoadCards(roads) }
+
             } catch (e: Exception) {
-                Snackbar.make(rootLayout, "⚠️ Parse lỗi dữ liệu!", Snackbar.LENGTH_SHORT).show()
+                runOnUiThread {
+                    Snackbar.make(rootLayout, "⚠️ Lỗi đọc dữ liệu từ ESP32!", Snackbar.LENGTH_SHORT).show()
+                }
             }
         }
     }
 
-    // 🧱 Hiển thị các thẻ đường (card đẹp)
-    private fun showRoadCards(roads: JSONArray) {
+    // 🧱 Hiển thị card đường
+    private fun showRoadCards(roads: List<Road>) {
         layoutRoads.removeAllViews()
 
-        for (i in 0 until roads.length()) {
-            val road = roads.getJSONObject(i)
-            val id = road.getInt("id")
-            val name = road.getString("name")
-            val status = road.getInt("status")
-
-            // Card container
+        for (road in roads) {
             val card = MaterialCardView(this).apply {
                 radius = 28f
                 cardElevation = 6f
@@ -66,17 +92,22 @@ class RoadListActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(0, 16, 0, 0)
-                }
+                ).apply { setMargins(0, 16, 0, 0) }
+
+                // 🎨 Chọn màu nền theo pha đèn
                 setCardBackgroundColor(
-                    if (status == 1) Color.parseColor("#A5D6A7") else Color.parseColor("#FFF59D")
+                    when (road.phase) {
+                        "RED" -> Color.parseColor("#EF9A9A")   // đỏ nhạt
+                        "YELLOW" -> Color.parseColor("#FFF59D") // vàng
+                        "GREEN" -> Color.parseColor("#A5D6A7")  // xanh
+                        else -> Color.parseColor("#E0E0E0")     // mặc định
+                    }
                 )
             }
 
-            // Text label
+            // 🕒 Text hiển thị tên + pha + thời gian
             val tv = TextView(this).apply {
-                text = if (status == 1) "✅ $name (Đang mở)" else "🚧 $name (Đang đóng)"
+                text = "🚦 ${road.name}\n${road.phase} - còn ${road.remaining}s"
                 textSize = 18f
                 setTextColor(Color.BLACK)
                 gravity = Gravity.CENTER
@@ -85,70 +116,63 @@ class RoadListActivity : AppCompatActivity() {
             card.addView(tv)
             layoutRoads.addView(card)
 
-            // Animation khi nhấn
             card.setOnClickListener {
                 ObjectAnimator.ofFloat(card, "alpha", 0.7f, 1f).apply {
                     duration = 200
                     start()
                 }
-                sendSetRoad(id)
+                sendSetRoad(road.id)
             }
         }
     }
+
+    // 🚦 Gửi yêu cầu ưu tiên đường
     private fun sendSetRoad(roadId: Int) {
-        val json = """{"roadId":$roadId}"""
+        var roadID2 = 0
+        if (roadId == 0) roadID2 = 1 else {
+            roadID2 = 0
+        }
+
+        val json = """{"roadId":${roadID2 + 1}}""" // ESP32 dùng roadId = 1 hoặc 2
         EspApiClient.postJson("/set_road", json) { response ->
-            try {
-                if (response.contains("Another road")) {
-                    val obj = JSONObject(response)
-                    val timeLeft = obj.optLong("timeLeftMs", 0L)
-                    val activeRoadId = obj.optInt("activeRoadId", -1)
-                    showWaitingDialog(timeLeft, roadId, activeRoadId)
-                } else if (response.contains("\"status\":\"ok\"")) {
-                    Snackbar.make(rootLayout, "🚦 Đã chọn đường ID $roadId", Snackbar.LENGTH_SHORT).show()
-                    loadRoads()
-                } else if (response.startsWith("❌")) {
-                    Snackbar.make(rootLayout, response, Snackbar.LENGTH_SHORT).show()
-                } else {
-                    Snackbar.make(rootLayout, "⚠️ Không xác định: $response", Snackbar.LENGTH_SHORT).show()
+            runOnUiThread {
+                try {
+                    when {
+                        response.contains("\"status\":\"ok\"") -> {
+                            Snackbar.make(rootLayout, "🚦 Đã chọn ${if (roadId == 0) PREF_KEY_G0_NAME else PREF_KEY_G1_NAME}", Snackbar.LENGTH_SHORT).show()
+                            // Trở về màn hình SsiDMenu
+                            android.os.Handler().postDelayed({
+                                // 🔙 Trở lại SSIDMenuActivity
+                                val intent = android.content.Intent(this, SsidMenu::class.java)
+                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                startActivity(intent)
+                                finish()
+                            }, 1000)
+
+                        }
+                        response.contains("Another road") -> {
+                            Snackbar.make(rootLayout, "⏳ Đang chờ đường khác...", Snackbar.LENGTH_SHORT).show()
+                        }
+                        response.startsWith("❌") -> {
+                            Snackbar.make(rootLayout, response, Snackbar.LENGTH_SHORT).show()
+                        }
+                        else -> {
+                            Snackbar.make(rootLayout, "⚠️ Không xác định: $response", Snackbar.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Snackbar.make(rootLayout, "⚠️ Lỗi xử lý phản hồi!", Snackbar.LENGTH_SHORT).show()
                 }
-            } catch (e: Exception) {
-                Snackbar.make(rootLayout, "⚠️ Lỗi xử lý phản hồi!", Snackbar.LENGTH_SHORT).show()
             }
         }
     }
-    // 🕒 Hộp thoại chờ đếm ngược khi đang có đường khác mở
-    private fun showWaitingDialog(timeLeftMs: Long, retryRoadId: Int, activeRoadId: Int) {
-        val seconds = (timeLeftMs / 1000).coerceAtLeast(1)
-        var remaining = seconds
 
-        val messageView = TextView(this).apply {
-            text = "Đường $activeRoadId đang mở.\nChờ ${remaining}s để thử lại..."
-            textSize = 18f
-            setPadding(32, 24, 32, 24)
-            gravity = Gravity.CENTER
-        }
-
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("⏳ Vui lòng chờ")
-            .setView(messageView)
-            .setCancelable(false)
-            .create()
-
-        dialog.show()
-
-        // Bộ đếm thời gian
-        object : CountDownTimer(timeLeftMs, 1000) {
-            override fun onTick(millisUntilFinished: Long) {
-                remaining = (millisUntilFinished / 1000)
-                messageView.text =
-                    "Đường $activeRoadId đang mở.\nChờ ${remaining}s để thử lại..."
-            }
-
-            override fun onFinish() {
-                dialog.dismiss()
-                sendSetRoad(retryRoadId)
-            }
-        }.start()
-    }
+    // Model nhỏ cho dễ quản lý
+    // 🧩 Model
+    data class Road(
+        val id: Int,
+        val name: String,
+        val phase: String,
+        val remaining: Int
+    )
 }

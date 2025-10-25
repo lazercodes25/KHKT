@@ -9,9 +9,11 @@ import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -20,16 +22,27 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import okhttp3.*
 import java.util.concurrent.TimeUnit
+import com.google.android.material.button.MaterialButton
+import androidx.core.content.ContextCompat
+import android.view.Gravity
 
 class SsidMenu : AppCompatActivity() {
 
     private lateinit var wifiManager: WifiManager
     private lateinit var llNetworks: LinearLayout
     private lateinit var tvStatus: TextView
+    private lateinit var progressScan: ProgressBar   // 👈 Thêm biến này
 
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
-
+    // Global trong SsidMenu.kt
+    private val roadNameMap = mapOf(
+        "DBP" to "Điện Biên Phủ",
+        "NTP" to "Nguyễn Tri Phương",
+        "LQ"  to "Lý Thường Kiệt",
+        "HQ"  to "Hàm Nghi"
+        // Thêm các tuyến khác nếu cần
+    )
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -52,15 +65,20 @@ class SsidMenu : AppCompatActivity() {
         wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         llNetworks = findViewById(R.id.llNetworks)
         tvStatus = findViewById(R.id.tvStatus)
+        progressScan = findViewById(R.id.progressScan)   // 👈 Lấy ProgressBar
 
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-        findViewById<Button>(R.id.btnScan).setOnClickListener {
-            startScanWithPermissionCheck()
-        }
+        // Ẩn nút quét vì ta quét tự động
+        findViewById<Button>(R.id.btnScan).visibility = View.GONE
 
         checkAndRequestPermissions()
         registerReceiver(scanReceiver, IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        startScanWithPermissionCheck()   // 👈 Quét tự động khi vào màn hình
     }
 
     override fun onDestroy() {
@@ -69,14 +87,12 @@ class SsidMenu : AppCompatActivity() {
         disconnectFromEsp()
     }
 
-    /**
-     * 🔌 Ngắt kết nối khỏi Wi-Fi ESP khi thoát app
-     */
+    // 🔌 Ngắt kết nối khỏi Wi-Fi ESP khi thoát app
     private fun disconnectFromEsp() {
         try {
             networkCallback?.let {
                 connectivityManager?.unregisterNetworkCallback(it)
-                tvStatus.text = "📴 Ngắt kết nối ESP"
+                tvStatus.text = "📴 Ngắt kết nối TrafficLight"
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -93,13 +109,14 @@ class SsidMenu : AppCompatActivity() {
         }
     }
 
-    // Receiver để nhận kết quả scan
+    // 📡 Nhận kết quả scan
     private val scanReceiver = object : BroadcastReceiver() {
         @RequiresApi(Build.VERSION_CODES.Q)
         @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
         override fun onReceive(context: Context?, intent: Intent?) {
+            progressScan.visibility = View.GONE   // 👈 Ẩn progress khi có kết quả
             val success = intent?.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false) ?: false
-            if (success) showScanResults() else tvStatus.text = "Quét thất bại"
+            if (success) showScanResults() else tvStatus.text = "❌ Quét thất bại"
         }
     }
 
@@ -112,8 +129,10 @@ class SsidMenu : AppCompatActivity() {
             wifiManager.isWifiEnabled = true
             tvStatus.text = "🔄 Bật Wi-Fi..."
         }
+
+        progressScan.visibility = View.VISIBLE  // 👈 Hiện ProgressBar khi quét
         val started = wifiManager.startScan()
-        tvStatus.text = if (started) "🔍 Đang quét..." else "⚠️ Không thể bắt đầu quét"
+        tvStatus.text = if (started) "🔍 Đang quét Đèn giao thông..." else "⚠️ Không thể bắt đầu quét"
     }
 
     private fun hasPermissions(): Boolean {
@@ -134,29 +153,20 @@ class SsidMenu : AppCompatActivity() {
     @RequiresApi(Build.VERSION_CODES.Q)
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
     private fun showScanResults() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) return
-
         val results: List<ScanResult> = wifiManager.scanResults
         llNetworks.removeAllViews()
 
-        // ✅ Lọc chỉ các mạng có SSID chứa "ESP" (hoặc bắt đầu bằng "ESP")
-        val espNetworks = results.filter { it.SSID.startsWith("ESP", ignoreCase = true) }
+        val espNetworks = results.filter { it.SSID.startsWith("TrafficLight_", ignoreCase = true) }
 
         if (espNetworks.isEmpty()) {
-            tvStatus.text = "❌ Không tìm thấy mạng ESP nào."
+            tvStatus.text = "❌ Không tìm thấy đèn giao thông nào."
             return
         }
 
-        tvStatus.text = "✅ Tìm thấy ${espNetworks.size} mạng ESP"
-
+        tvStatus.text = "✅ Tìm thấy ${espNetworks.size} đèn giao thông"
         val sorted = espNetworks.sortedByDescending { it.level }
-        for (r in sorted) {
-            addNetworkButton(r)
-        }
+
+        for (r in sorted) addNetworkButton(r)
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -164,17 +174,39 @@ class SsidMenu : AppCompatActivity() {
         val ssid = scanResult.SSID
         if (ssid.isNullOrBlank()) return
 
-        val btn = Button(this)
-        btn.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-        btn.text = "$ssid (RSSI: ${scanResult.level})"
-        btn.setOnClickListener {
-            promptConnectToSSID(ssid)
+        val codes = ssid.substringAfter("TrafficLight_", "Không rõ")
+        val codeParts = codes.split("_")
+        val displayName = codeParts.joinToString(" - ") { code ->
+            roadNameMap[code] ?: code
         }
+
+        val btn = MaterialButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 12, 0, 12)  // Khoảng cách giữa các nút
+            }
+
+            text = "🚦 $displayName"
+            setTextColor(ContextCompat.getColor(context, android.R.color.white))
+            textSize = 16f
+            gravity = Gravity.CENTER
+
+            // 🎨 Màu nền và bo góc
+            setBackgroundColor(ContextCompat.getColor(context, R.color.teal_700))
+            cornerRadius = 32   // Bo tròn
+
+            // Hiệu ứng nhấn
+            rippleColor = ContextCompat.getColorStateList(context, android.R.color.white)
+
+            // Click
+            setOnClickListener { promptConnectToSSID(ssid) }
+        }
+
         llNetworks.addView(btn)
     }
+
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun promptConnectToSSID(ssid: String) {
@@ -182,7 +214,7 @@ class SsidMenu : AppCompatActivity() {
         connectUsingNetworkSpecifier(ssid, "12345678")
     }
 
-    // === Android 10+ (ephemeral Wi-Fi) ===
+    // 📶 Kết nối ESP
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun connectUsingNetworkSpecifier(ssid: String, password: String?) {
         val builder = WifiNetworkSpecifier.Builder().setSsid(ssid)
@@ -197,7 +229,9 @@ class SsidMenu : AppCompatActivity() {
 
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                runOnUiThread { tvStatus.text = "✅ Đã kết nối tới $ssid" }
+                runOnUiThread {
+                    tvStatus.text = "✅ Đã kết nối tới $ssid"
+                }
                 EspApiClient.activeNetwork = network
                 val intent = Intent(this@SsidMenu, RoadListActivity::class.java)
                 startActivity(intent)
