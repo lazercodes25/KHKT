@@ -238,14 +238,12 @@ void handleSetRoad() {
     // ✅ Road 3 nghĩa là "ưu tiên hướng đang xanh"
     int activeGroup = (phaseG0 == GREEN) ? 0 : (phaseG1 == GREEN) ? 1: -1;
     if (activeGroup != -1) {
+      if (activeGroup == 0) {
+        activeGroup = 1;
+      } else {
+        activeGroup = 0;
+      }
       if (!priorityPending[activeGroup] && !priorityActive[activeGroup]) {
-        if (activeGroup == 0){
-          priorityPending[1] = true;
-        }
-        else
-        {
-          priorityPending[0] = true;
-        }
         Serial.printf("⚡ Nhận roadId=3 → G%d đang GREEN → Đặt ưu tiên KẾ TIẾP!\n", activeGroup);
         res["status"] = "priority set";
         res["group"] = activeGroup;
