@@ -1,0 +1,7 @@
+{
+  "users": [
+    { "username": "duy", "password": "123456", "speed": 15 },
+    { "username": "linh", "password": "654321", "speed": 10 },
+    { "username": "admin", "password": "admin", "speed": 20 }
+  ]
+}

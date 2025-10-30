@@ -128,37 +128,35 @@ class RoadListActivity : AppCompatActivity() {
 
     // 🚦 Gửi yêu cầu ưu tiên đường
     private fun sendSetRoad(roadId: Int) {
+        val userPrefs = getSharedPreferences("user", MODE_PRIVATE)
         var roadID2 = 0
         if (roadId == 0) roadID2 = 1 else {
             roadID2 = 0
         }
+        val speed = userPrefs.getInt("speed", 30)
 
-        val json = """{"roadId":${roadID2 + 1}}""" // ESP32 dùng roadId = 1 hoặc 2
+        val json = """{"roadId":${roadID2 + 1}, "speed":$speed}""" // ESP32 dùng roadId = 1 hoặc 2
         EspApiClient.postJson("/set_road", json) { response ->
             runOnUiThread {
                 try {
-                    when {
-                        response.contains("\"status\":\"ok\"") -> {
-                            Snackbar.make(rootLayout, "🚦 Đã chọn ${if (roadId == 0) PREF_KEY_G0_NAME else PREF_KEY_G1_NAME}", Snackbar.LENGTH_SHORT).show()
-                            // Trở về màn hình SsiDMenu
-                            android.os.Handler().postDelayed({
-                                // 🔙 Trở lại SSIDMenuActivity
-                                val intent = android.content.Intent(this, SsidMenu::class.java)
-                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                                startActivity(intent)
-                                finish()
-                            }, 1000)
+                    if (response.contains("\"status\":\"ok\"")) {
+                        // ✅ Giải mã JSON phản hồi
+                        val jsonRes = JSONObject(response)
+                        val wait = jsonRes.optInt("wait_seconds", 0)
+                        val bonus = jsonRes.optInt("bonus_seconds", 0)
 
-                        }
-                        response.contains("Another road") -> {
-                            Snackbar.make(rootLayout, "⏳ Đang chờ đường khác...", Snackbar.LENGTH_SHORT).show()
-                        }
-                        response.startsWith("❌") -> {
-                            Snackbar.make(rootLayout, response, Snackbar.LENGTH_SHORT).show()
-                        }
-                        else -> {
-                            Snackbar.make(rootLayout, "⚠️ Không xác định: $response", Snackbar.LENGTH_SHORT).show()
-                        }
+                        // 🧩 Hiển thị hộp thoại kết quả
+                        showPriorityDialog(wait, bonus)
+                        //
+                    }
+                    else if (response.contains("Another road")) {
+                        Snackbar.make(rootLayout, "⏳ Đang chờ đường khác...", Snackbar.LENGTH_SHORT).show()
+                    }
+                    else if (response.startsWith("❌")) {
+                        Snackbar.make(rootLayout, response, Snackbar.LENGTH_SHORT).show()
+                    }
+                    else {
+                        Snackbar.make(rootLayout, "⚠️ Không xác định: $response", Snackbar.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
                     Snackbar.make(rootLayout, "⚠️ Lỗi xử lý phản hồi!", Snackbar.LENGTH_SHORT).show()
@@ -166,6 +164,37 @@ class RoadListActivity : AppCompatActivity() {
             }
         }
     }
+    // 💬 Hộp thoại hiển thị thời gian ưu tiên
+    private fun showPriorityDialog(wait: Int, bonus: Int) {
+        val view = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 32)
+            addView(TextView(context).apply {
+                text = "⏳ Thời gian chờ: ${wait}s"
+                textSize = 18f
+                setTextColor(Color.BLACK)
+            })
+            addView(TextView(context).apply {
+                text = "🚦 Thời gian đèn đỏ ưu tiên: ${bonus}s"
+                textSize = 18f
+                setTextColor(Color.BLACK)
+                setPadding(0, 16, 0, 0)
+            })
+        }
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Ưu tiên được chấp nhận ✅")
+            .setView(view)
+            .setPositiveButton("Đóng") { _, _ ->
+                // 🔙 Trở về màn SsidMenu khi nhấn "Đóng"
+                val intent = android.content.Intent(this, SsidMenu::class.java)
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                finish()
+            }
+            .show()
+    }
+
 
     // Model nhỏ cho dễ quản lý
     // 🧩 Model
