@@ -1,9 +1,15 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
+#define BUTTON_PIN D5   // GPIO14
+volatile bool buttonPressed = false;
 
 const char* wifiPrefix = "TrafficLight_";  // Prefix SSID ESP32 phát
 bool connected = false;
 String esp32IP = "";
+
+void IRAM_ATTR handleButtonInterrupt() {
+  buttonPressed = true;   // Gắn cờ khi có ngắt
+}
 
 // === Kết nối WiFi bắt đầu bằng TrafficLight_ ===
 void connectToTrafficLight() {
@@ -63,9 +69,12 @@ void sendPriorityRequest() {
 void setup() {
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonInterrupt, FALLING);
   Serial.println("\nESP8266 Priority Controller 🚦");
   connectToTrafficLight();
   Serial.println("Nhập 'send' để gửi ưu tiên, 'r' để reconnect WiFi");
+  
 }
 
 void loop() {
@@ -73,6 +82,13 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     connected = false;
     connectToTrafficLight();
+  }
+
+  // Đọc lệnh từ Serial Monitor
+  if (buttonPressed) {
+    buttonPressed = false;
+    Serial.println("🔘 Gửi lệnh ưu tiên roadId=3 ...");
+    sendPriorityRequest();
   }
 
   // Đọc lệnh từ Serial Monitor
