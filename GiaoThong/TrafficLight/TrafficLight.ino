@@ -289,8 +289,14 @@ void handleSetRoad() {
     Serial.printf("⚡ Nhận roadId=%d → Đặt ưu tiên G%d!\n", roadId, group);
     res["status"] = "ok";
     res["group"] = group;
-    waitSeconds = (group == 0) ? RED_TIME + ((phaseG1 == RED) ? max(0, (GREEN_TIME + (priorityActive[0] ? priorityAddSeconds : 0)) - (int)((millis() - phaseStartTimeG[0]) / 1000)) : 0)
-                                : RED_TIME + ((phaseG0 == RED) ? max(0, (GREEN_TIME + (priorityActive[1] ? priorityAddSeconds : 0)) - (int)((millis() - phaseStartTimeG[1]) / 1000)) : 0);
+    // waitSeconds = số giây còn lại hiện tại cộng thêm thời gian đến đèn đỏ
+    unsigned long now = millis();
+    unsigned long e_group = (group == 0) ? (now - phaseStartTimeG[0]) / 1000 : (now - phaseStartTimeG[1]) / 1000;
+    int gDur_group = GREEN_TIME + (priorityActive[group] ? priorityAddSeconds : 0);
+    int rDur_group = RED_TIME + (priorityActive[1 - group] ? priorityAddSeconds : 0);
+    waitSeconds = (group == 0) ? max(0, gDur_group - (int)e_group) + rDur_group
+                              : max(0, gDur_group - (int)e_group) + rDur_group;
+                              
     res["wait_seconds"] = waitSeconds;
     res["bonus_seconds"] = addSeconds + RED_TIME; // thời gian ưu tiên thêm vào
   } else {
