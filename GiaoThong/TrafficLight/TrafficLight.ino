@@ -239,7 +239,7 @@ void handleSetRoad() {
 
 
   int roadId = doc["roadId"] | -1;
-  int speed = doc["speed"] | 5; // m/s 
+  float speed = doc["speed"] | 5; // m/s
   int addSeconds = 0;
   int waitSeconds = 0;
   int redlightSeconds = 0;
@@ -289,8 +289,8 @@ void handleSetRoad() {
     Serial.printf("⚡ Nhận roadId=%d → Đặt ưu tiên G%d!\n", roadId, group);
     res["status"] = "ok";
     res["group"] = group;
-    waitSeconds = (group == 0) ? RED_TIME + ((phaseG0 == RED) ? max(0, (GREEN_TIME + (priorityActive[1] ? priorityAddSeconds : 0)) - (int)((millis() - phaseStartTimeG[1]) / 1000)) : 0)
-                                : RED_TIME + ((phaseG1 == RED) ? max(0, (GREEN_TIME + (priorityActive[0] ? priorityAddSeconds : 0)) - (int)((millis() - phaseStartTimeG[0]) / 1000)) : 0);
+    waitSeconds = (group == 0) ? RED_TIME + ((phaseG1 == RED) ? max(0, (GREEN_TIME + (priorityActive[0] ? priorityAddSeconds : 0)) - (int)((millis() - phaseStartTimeG[0]) / 1000)) : 0)
+                                : RED_TIME + ((phaseG0 == RED) ? max(0, (GREEN_TIME + (priorityActive[1] ? priorityAddSeconds : 0)) - (int)((millis() - phaseStartTimeG[1]) / 1000)) : 0);
     res["wait_seconds"] = waitSeconds;
     res["bonus_seconds"] = addSeconds + RED_TIME; // thời gian ưu tiên thêm vào
   } else {
@@ -300,6 +300,7 @@ void handleSetRoad() {
 
   String json;
   serializeJson(res, json);
+  Serial.println(json);
   server.send(200, "application/json", json);
 }
 
