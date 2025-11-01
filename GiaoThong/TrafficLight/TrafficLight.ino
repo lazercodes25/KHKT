@@ -265,14 +265,25 @@ void handleSetRoad() {
         Serial.printf("⚡ Nhận roadId=3 → G%d đang GREEN → Đặt ưu tiên KẾ TIẾP!\n", activeGroup);
         res["status"] = "priority set";
         res["group"] = activeGroup;
+        addSeconds = 12;
         requestPriority(activeGroup);
         // thời gian chờ đến đèn đỏ để ưu tiên
         unsigned long now = millis();
-        unsigned long e_active = (activeGroup == 0) ? (now - phaseStartTimeG[0]) / 1000 : (now - phaseStartTimeG[1]) / 1000;
-        int gDur_active = GREEN_TIME + (priorityActive[activeGroup] ? priorityAddSeconds : 0);
-        int rDur_active = RED_TIME + (priorityActive[1 - activeGroup] ? priorityAddSeconds : 0);
-        waitSeconds = (activeGroup == 0) ? max(0, gDur_active - (int)e_active) + rDur_active
-                                         : max(0, gDur_active - (int)e_active) + rDur_active;
+        unsigned long e0 = (now - phaseStartTimeG[0]) / 1000;
+        unsigned long e1 = (now - phaseStartTimeG[1]) / 1000;
+        if (activeGroup == 0) {
+          // G0 đang đỏ
+          if (phaseG0 == RED) {
+            int remaining = RED_TIME - e0;
+            waitSeconds = remaining + GREEN_TIME + YELLOW_TIME;
+          }
+        } else {
+          // G1 đang đỏ
+          if (phaseG1 == RED) {
+            int remaining = RED_TIME - e1;
+            waitSeconds = remaining + GREEN_TIME + YELLOW_TIME;
+          }
+        }
         res["wait_seconds"] = waitSeconds;
         res["bonus_seconds"] = addSeconds + RED_TIME;  // thời gian ưu tiên thêm vào
 
@@ -313,7 +324,7 @@ void handleSetRoad() {
       else if (phaseG0 == RED) remaining = RED_TIME - e1;
     }
     Serial.printf("⏳ G%d hiện tại pha %s, còn lại %d giây\n", group, (group == 0) ? phaseName[phaseG0] : phaseName[phaseG1], remaining);
-    
+
     // Nếu nhóm đang xanh hoặc vàng → remaining
     if ((group == 0 && phaseG1 != RED) || (group == 1 && phaseG0 != RED)) {
       // nếu đèn xanh thì remaining + Yellow time
