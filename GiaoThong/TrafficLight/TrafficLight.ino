@@ -304,13 +304,13 @@ void handleSetRoad() {
     // Tính thời gian còn lại của pha hiện tại
     int remaining = 0;
     if (group == 0) {
-      if (phaseG0 == GREEN) remaining = GREEN_TIME - e0;
-      else if (phaseG0 == YELLOW) remaining = YELLOW_TIME - e0;
-      else if (phaseG0 == RED) remaining = RED_TIME - e0;
+      if (phaseG1 == GREEN) remaining = GREEN_TIME - e0;
+      else if (phaseG1 == YELLOW) remaining = YELLOW_TIME - e0;
+      else if (phaseG1 == RED) remaining = RED_TIME - e0;
     } else {
-      if (phaseG1 == GREEN) remaining = GREEN_TIME - e1;
-      else if (phaseG1 == YELLOW) remaining = YELLOW_TIME - e1;
-      else if (phaseG1 == RED) remaining = RED_TIME - e1;
+      if (phaseG0 == GREEN) remaining = GREEN_TIME - e1;
+      else if (phaseG0 == YELLOW) remaining = YELLOW_TIME - e1;
+      else if (phaseG0 == RED) remaining = RED_TIME - e1;
     }
     Serial.printf("⏳ G%d hiện tại pha %s, còn lại %d giây\n", group, (group == 0) ? phaseName[phaseG0] : phaseName[phaseG1], remaining);
     
