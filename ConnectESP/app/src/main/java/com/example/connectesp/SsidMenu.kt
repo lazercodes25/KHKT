@@ -31,7 +31,8 @@ class SsidMenu : AppCompatActivity() {
     private lateinit var wifiManager: WifiManager
     private lateinit var llNetworks: LinearLayout
     private lateinit var tvStatus: TextView
-    private lateinit var progressScan: ProgressBar   // 👈 Thêm biến này
+    private lateinit var progressScan: ProgressBar
+    private lateinit var btnRetryScan: Button
 
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -67,10 +68,15 @@ class SsidMenu : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         progressScan = findViewById(R.id.progressScan)   // 👈 Lấy ProgressBar
 
-        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        btnRetryScan = findViewById(R.id.btnRetryScan)
+        btnRetryScan.setOnClickListener {
+            tvStatus.text = "🔍 Đang quét lại..."
+            startScanWithPermissionCheck()
+            btnRetryScan.visibility = View.GONE   // Ẩn lại trong lúc quét
+        }
 
-        // Ẩn nút quét vì ta quét tự động
-        findViewById<Button>(R.id.btnScan).visibility = View.GONE
+
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
         checkAndRequestPermissions()
         registerReceiver(scanReceiver, IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION))
@@ -160,8 +166,11 @@ class SsidMenu : AppCompatActivity() {
 
         if (espNetworks.isEmpty()) {
             tvStatus.text = "❌ Không tìm thấy đèn giao thông nào."
+            btnRetryScan.visibility = View.VISIBLE   // 👈 Hiện nút Retry
             return
         }
+        else
+            btnRetryScan.visibility = View.GONE
 
         tvStatus.text = "✅ Tìm thấy ${espNetworks.size} đèn giao thông"
         val sorted = espNetworks.sortedByDescending { it.level }

@@ -9,26 +9,6 @@
     android:padding="16dp"
     tools:context=".SsidMenu">
 
-    <!-- Nút Quét (ban đầu nằm ở giữa ngang, cách trên 24dp) -->
-    <Button
-        android:id="@+id/btnScan"
-        android:layout_width="wrap_content"
-        android:layout_height="48dp"
-        android:text="🔍 Quét Wi-Fi ESP"
-        android:paddingLeft="20dp"
-        android:paddingRight="20dp"
-        android:textAllCaps="false"
-        android:fontFamily="sans-serif-medium"
-        android:textSize="16sp"
-        android:backgroundTint="#2196F3"
-        android:textColor="@android:color/white"
-        android:elevation="6dp"
-        android:layout_marginTop="24dp"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:visibility="gone"/>
-
     <!-- Trạng thái -->
     <TextView
         android:id="@+id/tvStatus"
@@ -39,11 +19,11 @@
         android:textColor="#555"
         android:gravity="center"
         android:layout_marginTop="12dp"
-        app:layout_constraintTop_toBottomOf="@id/btnScan"
+        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
+        app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- ProgressBar nhỏ khi quét -->
+    <!-- ProgressBar -->
     <ProgressBar
         android:id="@+id/progressScan"
         android:layout_width="40dp"
@@ -55,7 +35,23 @@
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginTop="12dp"/>
 
-    <!-- Vùng danh sách Wi-Fi: chiếm phần còn lại -->
+    <!-- Nút Quét -->
+    <Button
+        android:id="@+id/btnRetryScan"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🔍 Tìm lại đèn giao thông"
+        android:visibility="gone"
+        android:backgroundTint="@color/teal_700"
+        android:textColor="@android:color/white"
+        android:layout_marginTop="8dp"
+        app:cornerRadius="24dp"
+        app:layout_constraintTop_toBottomOf="@id/progressScan"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/svList" />
+
+    <!-- Danh sách Wi-Fi -->
     <androidx.core.widget.NestedScrollView
         android:id="@+id/svList"
         android:layout_width="0dp"
@@ -63,7 +59,7 @@
         android:background="@android:color/white"
         android:padding="12dp"
         android:elevation="2dp"
-        app:layout_constraintTop_toBottomOf="@id/progressScan"
+        app:layout_constraintTop_toBottomOf="@id/btnRetryScan"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"

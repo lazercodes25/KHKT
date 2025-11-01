@@ -1,6 +1,8 @@
 package com.example.connectesp
 
+import android.Manifest
 import android.animation.ObjectAnimator
+import android.annotation.SuppressLint
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
@@ -11,6 +13,17 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.snackbar.Snackbar
 import org.json.JSONObject
 import android.content.Context
+import android.content.Intent
+import android.os.CountDownTimer
+import android.graphics.Typeface
+import android.os.Vibrator
+import android.os.VibrationEffect
+import android.os.Build
+import android.view.animation.AlphaAnimation
+import android.view.animation.Animation
+import androidx.annotation.RequiresPermission
+import android.os.Looper
+import android.os.Handler
 
 
 class RoadListActivity : AppCompatActivity() {
@@ -22,6 +35,10 @@ class RoadListActivity : AppCompatActivity() {
     private val PREF_KEY_G0_NAME = "road_g0_name"
     private val PREF_KEY_G1_NAME = "road_g1_name"
 
+    private var isConnected = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var updateTaskRunning = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_road_list)
@@ -29,17 +46,49 @@ class RoadListActivity : AppCompatActivity() {
         layoutRoads = findViewById(R.id.layoutRoads)
         rootLayout = findViewById(R.id.rootLayout)
         prefs = getSharedPreferences("roads", Context.MODE_PRIVATE)
-        loadRoads()
+        // 🛰️ Bắt đầu auto-check kết nối với ESP32 mỗi 3 giây
+        EspApiClient.startAutoCheck(
+            onConnected = {
+                if (!isConnected) {
+                    isConnected = true
+                    startUpdateTask()
+                }
+            },
+            onDisconnected = { msg ->
+                if (isConnected) {
+                    isConnected = false
+                    Snackbar.make(rootLayout, msg, Snackbar.LENGTH_LONG).show()
+                    stopUpdateTask()
+                }
+            }
+        )
 
-        // 🔁 Cập nhật trạng thái đèn liên tục 1s/lần
-        val handler = android.os.Handler()
+        // 🔁 Ban đầu chỉ load khi có kết nối
+        startUpdateTask()
+    }
+    // Bắt đầu load trạng thái đèn mỗi giây
+    private fun startUpdateTask() {
+        if (updateTaskRunning) return
+        updateTaskRunning = true
         val updateTask = object : Runnable {
             override fun run() {
-                loadRoads()
-                handler.postDelayed(this, 1000)
+                if (isConnected) {
+                    loadRoads()
+                    handler.postDelayed(this, 1000)
+                } else {
+                    updateTaskRunning = false
+                }
             }
         }
         handler.post(updateTask)
+    }
+
+    // Dừng cập nhật
+    private fun stopUpdateTask() {
+        handler.removeCallbacksAndMessages(null)
+        updateTaskRunning = false
+        // Mở dialog thông báo Thiết bị đã bị ngắt kết nối nếu nhấn đóng sẽ trở lại SsidMenu
+        showDisconnectedDialog() // ⚡ Hiển thị cảnh báo
     }
 
 
@@ -71,7 +120,7 @@ class RoadListActivity : AppCompatActivity() {
 
             } catch (e: Exception) {
                 runOnUiThread {
-                    Snackbar.make(rootLayout, "⚠️ Lỗi đọc dữ liệu từ ESP32!", Snackbar.LENGTH_SHORT).show()
+                    Snackbar.make(rootLayout, "Đã mất kết nối với Đèn giao thông", Snackbar.LENGTH_SHORT).show()
                 }
             }
         }
@@ -142,7 +191,7 @@ class RoadListActivity : AppCompatActivity() {
                     if (response.contains("\"status\":\"ok\"")) {
                         // ✅ Giải mã JSON phản hồi
                         val jsonRes = JSONObject(response)
-                        val wait = jsonRes.optInt("wait_seconds", 0)
+                        var wait = jsonRes.optInt("wait_seconds", 0)
                         val bonus = jsonRes.optInt("bonus_seconds", 0)
 
                         // 🧩 Hiển thị hộp thoại kết quả
@@ -165,35 +214,105 @@ class RoadListActivity : AppCompatActivity() {
         }
     }
     // 💬 Hộp thoại hiển thị thời gian ưu tiên
+    @SuppressLint("SetTextI18n")
     private fun showPriorityDialog(wait: Int, bonus: Int) {
+        // Phát hiện dark mode
+        val isDarkMode = (resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+        val textColor = if (isDarkMode) Color.WHITE else Color.BLACK
+        val bgColor = if (isDarkMode) Color.parseColor("#2C2C2C") else Color.parseColor("#FAFAFA")
+
+        // Layout chính
         val view = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 32, 48, 32)
-            addView(TextView(context).apply {
-                text = "⏳ Thời gian chờ: ${wait}s"
-                textSize = 18f
-                setTextColor(Color.BLACK)
-            })
-            addView(TextView(context).apply {
-                text = "🚦 Thời gian đèn đỏ ưu tiên: ${bonus}s"
-                textSize = 18f
-                setTextColor(Color.BLACK)
-                setPadding(0, 16, 0, 0)
-            })
+            setBackgroundColor(bgColor)
+            gravity = Gravity.CENTER_HORIZONTAL
         }
 
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        // Text thời gian chờ
+        val waitText = TextView(this).apply {
+            text = "⏳ Thời gian chờ: ${wait}s"
+            textSize = 20f
+            setTextColor(textColor)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+        }
+
+        // Text bonus time
+        val bonusText = TextView(this).apply {
+            text = "🚦 Thời gian đèn đỏ ưu tiên: ${bonus}s"
+            textSize = 18f
+            setTextColor(textColor)
+            setPadding(0, 16, 0, 0)
+            gravity = Gravity.CENTER
+        }
+        view.addView(waitText)
+        view.addView(bonusText)
+
+        // Tạo dialog
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Ưu tiên được chấp nhận ✅")
             .setView(view)
+            .setCancelable(false)
             .setPositiveButton("Đóng") { _, _ ->
-                // 🔙 Trở về màn SsidMenu khi nhấn "Đóng"
-                val intent = android.content.Intent(this, SsidMenu::class.java)
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                val intent = Intent(this, SsidMenu::class.java)
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
                 finish()
             }
-            .show()
+            .create()
+
+        dialog.show()
+
+        // Countdown timer
+        object : CountDownTimer(wait * 1000L, 1000L) {
+            override fun onTick(millisUntilFinished: Long) {
+                val secondsLeft = (millisUntilFinished / 1000).toInt()
+                waitText.text = "⏳ Thời gian chờ: ${secondsLeft}s"
+            }
+
+            @RequiresPermission(Manifest.permission.VIBRATE)
+            @SuppressLint("ServiceCast", "SuspiciousIndentation")
+            override fun onFinish() {
+                waitText.text = "✅ Đã đến lượt ưu tiên!"
+                waitText.setTextColor(Color.parseColor("#E91E63")) // Hồng nổi bật
+                waitText.textSize = 22f
+
+                // Rung nhẹ 300ms
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else @Suppress("DEPRECATION")
+                vibrator.vibrate(300)
+            }
+        }.start()
     }
+    private fun showDisconnectedDialog() {
+        runOnUiThread {
+            val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+            builder.setTitle("⚠️ Mất kết nối thiết bị")
+            builder.setMessage("Thiết bị ESP32 đã bị ngắt kết nối.\nBạn sẽ trở lại màn hình chọn Wi-Fi.")
+
+            builder.setCancelable(false)
+            builder.setPositiveButton("Đóng") { _, _ ->
+                // Dừng các tiến trình cập nhật nếu có
+                stopUpdateTask()
+
+                // Quay lại màn hình chọn SSID
+                val intent = Intent(this, SsidMenu::class.java)
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                finish()
+            }
+
+            val dialog = builder.create()
+            dialog.show()
+        }
+    }
+
 
 
     // Model nhỏ cho dễ quản lý

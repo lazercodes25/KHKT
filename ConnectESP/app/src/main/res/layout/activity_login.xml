@@ -15,8 +15,8 @@
 
         <!-- Logo -->
         <ImageView
-            android:layout_width="104dp"
-            android:layout_height="100dp"
+            android:layout_width="119dp"
+            android:layout_height="118dp"
             android:layout_marginBottom="24dp"
             android:src="@mipmap/ic_traffic_round" />
 
