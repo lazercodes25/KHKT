@@ -25,6 +25,8 @@ import java.util.concurrent.TimeUnit
 import com.google.android.material.button.MaterialButton
 import androidx.core.content.ContextCompat
 import android.view.Gravity
+import android.os.SystemClock
+
 
 class SsidMenu : AppCompatActivity() {
 
@@ -33,6 +35,16 @@ class SsidMenu : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var progressScan: ProgressBar
     private lateinit var btnRetryScan: Button
+
+    // 🕒 Quét lại liên tục mỗi 2 giây
+    private val scanIntervalMs = 2000L
+    private val scanHandler = android.os.Handler()
+    private val scanRunnable = object : Runnable {
+        override fun run() {
+            startScanWithPermissionCheck()
+            scanHandler.postDelayed(this, scanIntervalMs)
+        }
+    }
 
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -80,17 +92,26 @@ class SsidMenu : AppCompatActivity() {
 
         checkAndRequestPermissions()
         registerReceiver(scanReceiver, IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION))
+
+        // 🟢 Kiểm tra và yêu cầu bật Wi-Fi nếu đang tắt
+        if (!wifiManager.isWifiEnabled) {
+            val panelIntent = Intent(android.provider.Settings.Panel.ACTION_WIFI)
+            startActivityForResult(panelIntent, 123)
+            tvStatus.text = "⚙️ Vui lòng bật Wi-Fi để quét đèn giao thông"
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        startScanWithPermissionCheck()   // 👈 Quét tự động khi vào màn hình
+        //startScanWithPermissionCheck()   // 👈 Quét tự động khi vào màn hình
+        scanHandler.post(scanRunnable) // Bắt đầu quét lặp
     }
 
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(scanReceiver)
         disconnectFromEsp()
+        scanHandler.removeCallbacks(scanRunnable) // 🛑 Dừng vòng quét
     }
 
     // 🔌 Ngắt kết nối khỏi Wi-Fi ESP khi thoát app
@@ -162,7 +183,13 @@ class SsidMenu : AppCompatActivity() {
         val results: List<ScanResult> = wifiManager.scanResults
         llNetworks.removeAllViews()
 
-        val espNetworks = results.filter { it.SSID.startsWith("TrafficLight_", ignoreCase = true) }
+        //val espNetworks = results.filter { it.SSID.startsWith("TrafficLight_", ignoreCase = true) }
+
+        val now = SystemClock.elapsedRealtimeNanos() / 1000  // microseconds
+        val espNetworks = results.filter {
+            it.SSID.startsWith("TrafficLight_", ignoreCase = true) &&
+                    (now - it.timestamp) < 2000000  // chỉ giữ kết quả trong 5 giây gần nhất
+        }
 
         if (espNetworks.isEmpty()) {
             tvStatus.text = "❌ Không tìm thấy đèn giao thông nào."
