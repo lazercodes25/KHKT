@@ -239,7 +239,7 @@ void handleSetRoad() {
 
 
   int roadId = doc["roadId"] | -1;
-  float speed = doc["speed"] | 5; // m/s
+  float speed = doc["speed"] | 5;  // m/s
   int addSeconds = 0;
   int waitSeconds = 0;
   int redlightSeconds = 0;
@@ -253,7 +253,8 @@ void handleSetRoad() {
 
   if (roadId == 3) {
     // ✅ Road 3 nghĩa là "ưu tiên hướng đang xanh"
-    int activeGroup = (phaseG0 == GREEN) ? 0 : (phaseG1 == GREEN) ? 1: -1;
+    int activeGroup = (phaseG0 == GREEN) ? 0 : (phaseG1 == GREEN) ? 1
+                                                                  : -1;
     if (activeGroup != -1) {
       if (activeGroup == 0) {
         activeGroup = 1;
@@ -271,9 +272,9 @@ void handleSetRoad() {
         int gDur_active = GREEN_TIME + (priorityActive[activeGroup] ? priorityAddSeconds : 0);
         int rDur_active = RED_TIME + (priorityActive[1 - activeGroup] ? priorityAddSeconds : 0);
         waitSeconds = (activeGroup == 0) ? max(0, gDur_active - (int)e_active) + rDur_active
-                                        : max(0, gDur_active - (int)e_active) + rDur_active;
+                                         : max(0, gDur_active - (int)e_active) + rDur_active;
         res["wait_seconds"] = waitSeconds;
-        res["bonus_seconds"] = addSeconds + RED_TIME; // thời gian ưu tiên thêm vào
+        res["bonus_seconds"] = addSeconds + RED_TIME;  // thời gian ưu tiên thêm vào
 
       } else {
         Serial.printf("ℹ️ RoadId=3 → G%d đã có ưu tiên, bỏ qua\n", activeGroup);
@@ -290,15 +291,44 @@ void handleSetRoad() {
     res["status"] = "ok";
     res["group"] = group;
     // waitSeconds = số giây còn lại hiện tại cộng thêm thời gian đến đèn đỏ
+    // 🧮 Tính thời gian chờ thực tế đến khi ưu tiên bắt đầu
     unsigned long now = millis();
-    unsigned long e_group = (group == 0) ? (now - phaseStartTimeG[0]) / 1000 : (now - phaseStartTimeG[1]) / 1000;
-    int gDur_group = GREEN_TIME + (priorityActive[group] ? priorityAddSeconds : 0);
-    int rDur_group = RED_TIME + (priorityActive[1 - group] ? priorityAddSeconds : 0);
-    waitSeconds = (group == 0) ? max(0, gDur_group - (int)e_group) + rDur_group
-                              : max(0, gDur_group - (int)e_group) + rDur_group;
-                              
+    unsigned long e0 = (now - phaseStartTimeG[0]) / 1000;
+    unsigned long e1 = (now - phaseStartTimeG[1]) / 1000;
+
+    int gDur0 = GREEN_TIME + (priorityActive[0] ? priorityAddSeconds : 0);
+    int gDur1 = GREEN_TIME + (priorityActive[1] ? priorityAddSeconds : 0);
+
+    int rDur0 = RED_TIME + (priorityActive[1] ? priorityAddSeconds : 0);
+    int rDur1 = RED_TIME + (priorityActive[0] ? priorityAddSeconds : 0);
+
+    // Tính thời gian còn lại của pha hiện tại
+    int remaining = 0;
+    if (group == 0) {
+      if (phaseG0 == GREEN) remaining = gDur0 - e0;
+      else if (phaseG0 == YELLOW) remaining = YELLOW_TIME - e0;
+      else if (phaseG0 == RED) remaining = rDur0 - e0;
+    } else {
+      if (phaseG1 == GREEN) remaining = gDur1 - e1;
+      else if (phaseG1 == YELLOW) remaining = YELLOW_TIME - e1;
+      else if (phaseG1 == RED) remaining = rDur1 - e1;
+    }
+
+    // Nếu nhóm đang xanh hoặc vàng → remaining
+    if ((group == 0 && phaseG0 != RED) || (group == 1 && phaseG1 != RED)) {
+      // nếu đèn xanh thì remaining + Yellow time
+      if ((group == 0 && phaseG0 == GREEN) || (group == 1 && phaseG1 == GREEN)) {
+        waitSeconds = remaining + YELLOW_TIME;
+      } else {
+        // nếu đèn vàng thì remaining
+        waitSeconds = remaining;
+      }
+    } else {
+      // Nếu đang đỏ → remaining + đèn xanh hiện tại + vàng hiện tại
+      waitSeconds = remaining + ((group == 0) ? gDur1 + YELLOW_TIME : gDur0 + YELLOW_TIME);
+    }
     res["wait_seconds"] = waitSeconds;
-    res["bonus_seconds"] = addSeconds + RED_TIME; // thời gian ưu tiên thêm vào
+    res["bonus_seconds"] = addSeconds + RED_TIME;  // thời gian ưu tiên thêm vào
   } else {
     server.send(400, "application/json", "{\"error\":\"Invalid roadId\"}");
     return;
