@@ -286,7 +286,6 @@ void handleSetRoad() {
     }
   } else if (roadId == 1 || roadId == 2) {
     int group = roadId - 1;
-    requestPriority(group, addSeconds);
     Serial.printf("⚡ Nhận roadId=%d → Đặt ưu tiên G%d!\n", roadId, group);
     res["status"] = "ok";
     res["group"] = group;
@@ -305,19 +304,20 @@ void handleSetRoad() {
     // Tính thời gian còn lại của pha hiện tại
     int remaining = 0;
     if (group == 0) {
-      if (phaseG0 == GREEN) remaining = gDur0 - e0;
+      if (phaseG0 == GREEN) remaining = GREEN_TIME - e0;
       else if (phaseG0 == YELLOW) remaining = YELLOW_TIME - e0;
-      else if (phaseG0 == RED) remaining = rDur0 - e0;
+      else if (phaseG0 == RED) remaining = RED_TIME - e0;
     } else {
-      if (phaseG1 == GREEN) remaining = gDur1 - e1;
+      if (phaseG1 == GREEN) remaining = GREEN_TIME - e1;
       else if (phaseG1 == YELLOW) remaining = YELLOW_TIME - e1;
-      else if (phaseG1 == RED) remaining = rDur1 - e1;
+      else if (phaseG1 == RED) remaining = RED_TIME - e1;
     }
-
+    Serial.printf("⏳ G%d hiện tại pha %s, còn lại %d giây\n", group, (group == 0) ? phaseName[phaseG0] : phaseName[phaseG1], remaining);
+    
     // Nếu nhóm đang xanh hoặc vàng → remaining
-    if ((group == 0 && phaseG0 != RED) || (group == 1 && phaseG1 != RED)) {
+    if ((group == 0 && phaseG1 != RED) || (group == 1 && phaseG0 != RED)) {
       // nếu đèn xanh thì remaining + Yellow time
-      if ((group == 0 && phaseG0 == GREEN) || (group == 1 && phaseG1 == GREEN)) {
+      if ((group == 0 && phaseG1 == GREEN) || (group == 1 && phaseG0 == GREEN)) {
         waitSeconds = remaining + YELLOW_TIME;
       } else {
         // nếu đèn vàng thì remaining
@@ -325,10 +325,11 @@ void handleSetRoad() {
       }
     } else {
       // Nếu đang đỏ → remaining + đèn xanh hiện tại + vàng hiện tại
-      waitSeconds = remaining + ((group == 0) ? gDur1 + YELLOW_TIME : gDur0 + YELLOW_TIME);
+      waitSeconds = remaining + GREEN_TIME + YELLOW_TIME;
     }
     res["wait_seconds"] = waitSeconds;
     res["bonus_seconds"] = addSeconds + RED_TIME;  // thời gian ưu tiên thêm vào
+    requestPriority(group, addSeconds);
   } else {
     server.send(400, "application/json", "{\"error\":\"Invalid roadId\"}");
     return;
