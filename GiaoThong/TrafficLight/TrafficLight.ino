@@ -275,13 +275,13 @@ void handleSetRoad() {
           // G0 đang đỏ
           if (phaseG0 == RED) {
             int remaining = RED_TIME - e0;
-            waitSeconds = remaining + GREEN_TIME + YELLOW_TIME;
+            waitSeconds = remaining + YELLOW_TIME;
           }
         } else {
           // G1 đang đỏ
           if (phaseG1 == RED) {
             int remaining = RED_TIME - e1;
-            waitSeconds = remaining + GREEN_TIME + YELLOW_TIME;
+            waitSeconds = remaining + YELLOW_TIME;
           }
         }
         res["wait_seconds"] = waitSeconds;
