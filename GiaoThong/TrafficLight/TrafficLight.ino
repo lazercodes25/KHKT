@@ -303,14 +303,8 @@ void handleSetRoad() {
     // waitSeconds = số giây còn lại hiện tại cộng thêm thời gian đến đèn đỏ
     // 🧮 Tính thời gian chờ thực tế đến khi ưu tiên bắt đầu
     unsigned long now = millis();
-    unsigned long e0 = (now - phaseStartTimeG[0]) / 1000;
-    unsigned long e1 = (now - phaseStartTimeG[1]) / 1000;
-
-    int gDur0 = GREEN_TIME + (priorityActive[0] ? priorityAddSeconds : 0);
-    int gDur1 = GREEN_TIME + (priorityActive[1] ? priorityAddSeconds : 0);
-
-    int rDur0 = RED_TIME + (priorityActive[1] ? priorityAddSeconds : 0);
-    int rDur1 = RED_TIME + (priorityActive[0] ? priorityAddSeconds : 0);
+    unsigned long e0 = (now - phaseStartTimeG[1]) / 1000;
+    unsigned long e1 = (now - phaseStartTimeG[0]) / 1000;
 
     // Tính thời gian còn lại của pha hiện tại
     int remaining = 0;
