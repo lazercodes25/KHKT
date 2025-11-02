@@ -116,15 +116,28 @@ object EspApiClient {
     /**
      * 🔁 Tự động kiểm tra kết nối mỗi 3 giây
      */
+    private var autoCheckRunnable: Runnable? = null
+
     fun startAutoCheck(
         onConnected: () -> Unit,
         onDisconnected: (String) -> Unit
     ) {
-        handler.post(object : Runnable {
+        // Nếu đã chạy, không khởi tạo lại
+        if (autoCheckRunnable != null) return
+
+        autoCheckRunnable = object : Runnable {
             override fun run() {
                 checkConnection(onConnected, onDisconnected)
                 handler.postDelayed(this, 3000) // 3s kiểm tra lại 1 lần
             }
-        })
+        }
+        handler.post(autoCheckRunnable!!)
+    }
+    fun stopAutoCheck() {
+        autoCheckRunnable?.let {
+            handler.removeCallbacks(it)
+            autoCheckRunnable = null
+        }
+        isChecking = false
     }
 }

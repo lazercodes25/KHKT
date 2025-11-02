@@ -62,9 +62,12 @@ class RoadListActivity : AppCompatActivity() {
                 }
             }
         )
-
-        // 🔁 Ban đầu chỉ load khi có kết nối
-        startUpdateTask()
+    }
+    override fun onDestroy() {
+        super.onDestroy()
+        EspApiClient.stopAutoCheck()
+        handler.removeCallbacksAndMessages(null)
+        updateTaskRunning = false
     }
     // Bắt đầu load trạng thái đèn mỗi giây
     private fun startUpdateTask() {
@@ -309,7 +312,7 @@ class RoadListActivity : AppCompatActivity() {
             }
 
             val dialog = builder.create()
-            dialog.show()
+            if (!isFinishing && !isDestroyed) dialog.show()
         }
     }
 
