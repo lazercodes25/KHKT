@@ -141,7 +141,7 @@ class SsidMenu : AppCompatActivity() {
         @RequiresApi(Build.VERSION_CODES.Q)
         @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
         override fun onReceive(context: Context?, intent: Intent?) {
-            progressScan.visibility = View.GONE   // 👈 Ẩn progress khi có kết quả
+            progressScan.visibility = View.INVISIBLE   // 👈 Ẩn progress khi có kết quả
             val success = intent?.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false) ?: false
             if (success) showScanResults() else tvStatus.text = "❌ Quét thất bại"
         }
