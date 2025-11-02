@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/rootLayout"
     android:layout_width="match_parent"
@@ -10,6 +9,46 @@
     android:padding="16dp"
     tools:context=".RoadListActivity">
 
+    <!-- Header: Tên user (trái) + Logout (phải) -->
+    <LinearLayout
+        android:id="@+id/headerLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingVertical="8dp">
+
+        <!-- Tên người dùng bên trái -->
+        <TextView
+            android:id="@+id/tvUserName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Người dùng"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#333" />
+
+        <!-- View giãn cách -->
+        <View
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1" />
+
+        <!-- Nút Logout bên phải -->
+        <Button
+            android:id="@+id/btnLogout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Đăng xuất ⟶"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#E74C3C"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="8dp"
+            android:elevation="3dp" />
+    </LinearLayout>
+
+    <!-- Tiêu đề -->
     <TextView
         android:id="@+id/tvTitle"
         android:layout_width="match_parent"
@@ -21,6 +60,7 @@
         android:paddingBottom="12dp"
         android:gravity="center" />
 
+    <!-- Danh sách tuyến đường -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"

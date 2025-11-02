@@ -26,6 +26,7 @@ import com.google.android.material.button.MaterialButton
 import androidx.core.content.ContextCompat
 import android.view.Gravity
 import android.os.SystemClock
+import java.io.File
 
 
 class SsidMenu : AppCompatActivity() {
@@ -79,6 +80,13 @@ class SsidMenu : AppCompatActivity() {
         llNetworks = findViewById(R.id.llNetworks)
         tvStatus = findViewById(R.id.tvStatus)
         progressScan = findViewById(R.id.progressScan)   // 👈 Lấy ProgressBar
+        
+        val tvUserName = findViewById<TextView>(R.id.tvUserName)
+        val btnLogout = findViewById<Button>(R.id.btnLogout)
+
+        val prefs = getSharedPreferences("user", MODE_PRIVATE)
+        val displayName = prefs.getString("name", "Người dùng")
+        tvUserName.text = displayName
 
         btnRetryScan = findViewById(R.id.btnRetryScan)
         btnRetryScan.setOnClickListener {
@@ -86,7 +94,16 @@ class SsidMenu : AppCompatActivity() {
             startScanWithPermissionCheck()
             btnRetryScan.visibility = View.GONE   // Ẩn lại trong lúc quét
         }
+        btnLogout.setOnClickListener {
+            val file = File(filesDir, "login.json")
+            if (file.exists()) file.delete()
+            prefs.edit().clear().apply()
 
+            val intent = Intent(this, LoginActivity::class.java)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            startActivity(intent)
+            finish()
+        }
 
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 

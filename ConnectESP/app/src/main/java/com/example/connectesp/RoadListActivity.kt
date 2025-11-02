@@ -24,7 +24,8 @@ import android.view.animation.Animation
 import androidx.annotation.RequiresPermission
 import android.os.Looper
 import android.os.Handler
-
+import android.widget.Button
+import java.io.File
 
 class RoadListActivity : AppCompatActivity() {
 
@@ -46,6 +47,24 @@ class RoadListActivity : AppCompatActivity() {
         layoutRoads = findViewById(R.id.layoutRoads)
         rootLayout = findViewById(R.id.rootLayout)
         prefs = getSharedPreferences("roads", Context.MODE_PRIVATE)
+        val tvUserName = findViewById<TextView>(R.id.tvUserName)
+        val btnLogout = findViewById<Button>(R.id.btnLogout)
+        val layoutRoads = findViewById<LinearLayout>(R.id.layoutRoads)
+
+        // Lấy thông tin user
+        val prefs1 = getSharedPreferences("user", MODE_PRIVATE)
+        val displayName = prefs1.getString("name", "Người dùng")
+        tvUserName.text = displayName
+        // Nút đăng xuất
+        btnLogout.setOnClickListener {
+            val file = File(filesDir, "login.json")
+            if (file.exists()) file.delete()
+            prefs1.edit().clear().apply()
+            val intent = Intent(this, LoginActivity::class.java)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            startActivity(intent)
+            finish()
+        }
         // 🛰️ Bắt đầu auto-check kết nối với ESP32 mỗi 3 giây
         EspApiClient.startAutoCheck(
             onConnected = {
