@@ -16,6 +16,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.CountDownTimer
 import android.graphics.Typeface
+import android.media.MediaPlayer
 import android.os.Vibrator
 import android.os.VibrationEffect
 import android.os.Build
@@ -199,35 +200,24 @@ class RoadListActivity : AppCompatActivity() {
 
     // 🚦 Gửi yêu cầu ưu tiên đường
     private fun sendSetRoad(roadId: Int) {
-        val userPrefs = getSharedPreferences("user", MODE_PRIVATE)
-        var roadID2 = 0
-        if (roadId == 0) roadID2 = 1 else {
-            roadID2 = 0
-        }
-        val speed = userPrefs.getInt("speed", 30)
+        val prefs = getSharedPreferences("user", MODE_PRIVATE)
+        val speed = prefs.getInt("speed", 30)
+        val roadIdEsp = if (roadId == 0) 2 else 1 // ESP dùng 1 hoặc 2
 
-        val json = """{"roadId":${roadID2 + 1}, "speed":$speed}""" // ESP32 dùng roadId = 1 hoặc 2
+        val json = """{"roadId":$roadIdEsp, "speed":$speed}"""
+
         EspApiClient.postJson("/set_road", json) { response ->
             runOnUiThread {
                 try {
-                    if (response.contains("\"status\":\"ok\"")) {
-                        // ✅ Giải mã JSON phản hồi
-                        val jsonRes = JSONObject(response)
-                        var wait = jsonRes.optInt("wait_seconds", 0)
-                        val bonus = jsonRes.optInt("bonus_seconds", 0)
-
-                        // 🧩 Hiển thị hộp thoại kết quả
-                        showPriorityDialog(wait, bonus)
-                        //
-                    }
-                    else if (response.contains("Another road")) {
-                        Snackbar.make(rootLayout, "⏳ Đang chờ đường khác...", Snackbar.LENGTH_SHORT).show()
-                    }
-                    else if (response.startsWith("❌")) {
-                        Snackbar.make(rootLayout, response, Snackbar.LENGTH_SHORT).show()
-                    }
-                    else {
-                        Snackbar.make(rootLayout, "⚠️ Không xác định: $response", Snackbar.LENGTH_SHORT).show()
+                    val jsonRes = JSONObject(response)
+                    when (jsonRes.optString("status")) {
+                        "ok" -> {
+                            val wait = jsonRes.optInt("wait_seconds")
+                            val bonus = jsonRes.optInt("bonus_seconds")
+                            showPriorityDialog(wait, bonus)
+                        }
+                        "waiting" -> Snackbar.make(rootLayout, "⏳ Đang chờ đường khác...", Snackbar.LENGTH_SHORT).show()
+                        else -> Snackbar.make(rootLayout, "⚠️ Không xác định: $response", Snackbar.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
                     Snackbar.make(rootLayout, "⚠️ Lỗi xử lý phản hồi!", Snackbar.LENGTH_SHORT).show()
@@ -302,13 +292,35 @@ class RoadListActivity : AppCompatActivity() {
                 waitText.text = "✅ Đã đến lượt ưu tiên!"
                 waitText.setTextColor(Color.parseColor("#E91E63")) // Hồng nổi bật
                 waitText.textSize = 22f
-
+                // 🔊 Phát âm thanh thông báo
+                try {
+                    val mediaPlayer = MediaPlayer.create(this@RoadListActivity, R.raw.priority_alert)
+                    mediaPlayer?.start()
+                    mediaPlayer?.setOnCompletionListener {
+                        it.release()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
                 // Rung nhẹ 300ms
+                // 💥 Rung lặp từng đợt cho đến khi dialog đóng
                 val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+
+                // Mẫu rung: [rung, nghỉ, rung, nghỉ, ...]
+                val pattern = longArrayOf(0, 500, 300, 500, 300) // ms
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
-                } else @Suppress("DEPRECATION")
-                vibrator.vibrate(300)
+                    val effect = VibrationEffect.createWaveform(pattern, 0) // 0 = lặp vô hạn
+                    vibrator.vibrate(effect)
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(pattern, 0) // lặp vô hạn trên Android cũ
+                }
+
+                // 🧩 Dừng rung khi dialog bị đóng
+                dialog.setOnDismissListener {
+                    vibrator.cancel()
+                }
             }
         }.start()
     }
