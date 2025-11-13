@@ -4,6 +4,10 @@ import cv2
 from ultralytics import YOLO
 import supervision as sv
 from collections import Counter
+from flask import Flask, jsonify
+import threading
+
+total_vehicle = 0  # giá trị global được cập nhật trong vòng lặp video
 
 # Danh sách các class phương tiện trong COCO
 VEHICLE_CLASSES = {
@@ -14,6 +18,14 @@ VEHICLE_CLASSES = {
     6: "train",
     7: "truck",
 }
+def start_api(port=5000):
+    app = Flask(__name__)
+
+    @app.route("/total_vehicle", methods=["GET"])
+    def get_total_vehicle():
+        return jsonify({"total_vehicle": total_vehicle})
+    print(f"[INFO] Starting API server on port {port}...")
+    app.run(host="0.0.0.0", port=port)  
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -79,7 +91,7 @@ def process_image(image_path, model, args):
 def process_video_or_webcam(source, model, args):
     """Xử lý video hoặc webcam"""
     tracker = sv.ByteTrack()
-
+    global total_vehicle
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         print(f"[ERROR] Không mở được nguồn: {source}")
@@ -157,12 +169,16 @@ def process_video_or_webcam(source, model, args):
     for k, v in current_counts.items():
         print(f"{k}: {v}")
     print(f"Tổng phương tiện cuối khung: {total}")
+    total_vehicle = total  # Cập nhật giá trị global
 
 def main():
     args = parse_args()
     model = YOLO(args.model)
     model.to(args.device)
-
+    # Khởi chạy API song song trong thread
+    api_port = 8000 if str(args.source) == "0" else 8001
+    api_thread = threading.Thread(target=start_api, args=(api_port,), daemon=True)
+    api_thread.start()
     # Kiểm tra nếu source là ảnh
     if isinstance(args.source, str) and os.path.splitext(args.source)[1].lower() in [".jpg", ".png", ".jpeg"]:
         process_image(args.source, model, args)
