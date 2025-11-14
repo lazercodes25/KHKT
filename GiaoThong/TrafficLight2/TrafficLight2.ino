@@ -42,9 +42,9 @@ bool INVERT = false;     // set true for common-anode RGB (HIGH = off)
 bool IC2_FIRST = true;   // unused for now
 
 // ==== Thời gian ====
-const int GREEN_TIME = 10;
-const int YELLOW_TIME = 3;
-const int RED_TIME = GREEN_TIME + YELLOW_TIME;
+int GREEN_TIME = 10;
+int YELLOW_TIME = 3;
+int RED_TIME = GREEN_TIME + YELLOW_TIME;
 
 // ==== Ưu tiên động (được set từ app) ====
 int priorityAddSeconds = 15;  // mặc định nếu app chưa gửi
@@ -61,6 +61,9 @@ Phase phaseG0 = GREEN;
 Phase phaseG1 = RED;
 unsigned long phaseStartTimeG[2] = { 0, 0 };
 int currentGroup = 0;  // 0 = Bắc–Nam đang chạy
+
+bool updated = false;
+int greenTime = GREEN_TIME;
 
 // ======================
 // ⚙️ Gửi dữ liệu 74HC595
@@ -125,6 +128,39 @@ void setRGBColor(int group, Phase phase) {
     writeRGBPins(R2_PIN, G2_PIN, B2_PIN, r, g, b);
   }
 }
+int readSerialJson() {
+  static String buffer = "";
+
+
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      // đã nhận xong 1 JSON
+      StaticJsonDocument<256> doc;
+      DeserializationError err = deserializeJson(doc, buffer);
+
+      if (!err) {
+        JsonObject gt = doc["green_time"];
+        if (!gt.isNull()) {
+          int g0 = gt["G0"] | -1;
+          int g1 = gt["G1"] | -1;
+          if (g0 >= 5 && g1 >= 5) {
+            greenTime = max(g0, g1);  // đặt theo giá trị lơn nhất an toàn;
+          }
+          Serial.printf("✅ Cập nhật GREEN_TIME=%d từ JSON\n", greenTime);
+        }
+      } else {
+        Serial.println("❌ JSON lỗi từ Python");
+      }
+
+      buffer = "";  // reset
+    } else {
+      buffer += c;
+    }
+  }
+  // trả về giá trị đã cập nhật cả GREEN_TIME và RED_TIME
+  return greenTime;
+}
 
 // ==== Ưu tiên ====
 // requestPriority: set pending priority for next cycle; returns immediately
@@ -140,7 +176,8 @@ void nextPhase() {
   unsigned long now = millis();
   unsigned long e0 = (now - phaseStartTimeG[0]) / 1000;
   unsigned long e1 = (now - phaseStartTimeG[1]) / 1000;
-
+  int greenTime = readSerialJson();
+  Serial.println(greenTime);
   if (currentGroup == 0) {
     int gDur = GREEN_TIME + (priorityActive[0] ? priorityAddSeconds : 0);
     if (phaseG0 == GREEN && e0 >= (unsigned)gDur) {
@@ -157,6 +194,7 @@ void nextPhase() {
         priorityActive[1] = true;
         priorityPending[1] = false;
       }
+      updated = true;
     }
   } else {
     int gDur = GREEN_TIME + (priorityActive[1] ? priorityAddSeconds : 0);
@@ -173,9 +211,18 @@ void nextPhase() {
         priorityActive[0] = true;
         priorityPending[0] = false;
       }
+      updated = true;
     }
   }
+  if (updated) {
+    // apply updated GREEN_TIME if changed
+      GREEN_TIME = greenTime;
+      RED_TIME = GREEN_TIME + YELLOW_TIME;
+      Serial.printf("🔄 Cập nhật thời gian: GREEN_TIME=%d, RED_TIME=%d\n", GREEN_TIME, RED_TIME);
+      updated = false;
+  }
 }
+
 
 // ======================
 // 🌐 API HANDLERS
