@@ -144,10 +144,11 @@ int readSerialJson() {
         if (!gt.isNull()) {
           int g0 = gt["G0"] | -1;
           int g1 = gt["G1"] | -1;
-          if (g0 >= 5 && g1 >= 5) {
-            greenTime = max(g0, g1);  // đặt theo giá trị lơn nhất an toàn;
+          // Nếu group hiện tại là pha RED, thì cập nhật GREEN_TIME theo giá trị của group đó
+          if ((currentGroup == 0 && phaseG0 == RED && g0 >= 0) || (currentGroup == 1 && phaseG1 == RED && g1 >= 0)) {
+            greenTime = (currentGroup == 0) ? g0 : g1;
           }
-          Serial.printf("✅ Cập nhật GREEN_TIME=%d từ JSON\n", greenTime);
+          Serial.printf("✅ Nhận JSON từ Python: G0=%d, G1=%d, cập nhật GREEN_TIME=%d\n", g0, g1, greenTime);
         }
       } else {
         Serial.println("❌ JSON lỗi từ Python");
