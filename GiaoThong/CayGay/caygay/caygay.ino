@@ -1,11 +1,15 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
+#include <ArduinoJson.h>
+
 #define BUTTON_PIN D5   // GPIO14
+#define RELAY_PIN D1   // GPIO5
 volatile bool buttonPressed = false;
 
 const char* wifiPrefix = "TrafficLight_";  // Prefix SSID ESP32 phát
 bool connected = false;
 String esp32IP = "";
+// === Ngắt nút nhấn ===
 
 void IRAM_ATTR handleButtonInterrupt() {
   buttonPressed = true;   // Gắn cờ khi có ngắt
@@ -56,9 +60,37 @@ void sendPriorityRequest() {
   String body = "{\"roadId\":3}";
   int httpCode = http.POST(body);
 
-  if (httpCode > 0) {
+  if (httpCode == 200) {
     Serial.printf("📨 Gửi thành công (HTTP %d)\n", httpCode);
     Serial.println(http.getString());
+    // phản hồi có trường json wait_seconds
+    // TODO: parse JSON and handle wait_seconds
+    String response = http.getString();
+    StaticJsonDocument<256> doc;
+    DeserializationError err = deserializeJson(doc, response);
+    if (!err) {
+      int wait_seconds = doc["wait_seconds"] | -1;
+      //Đếm ngược nếu như có wait_seconds, nếu đêm về 0 thì bật relay chân D1
+      if (wait_seconds >= 0) {
+        Serial.printf("⏳ Ưu tiên sẽ được áp dụng sau %d giây\n", wait_seconds);
+      } else {
+        Serial.println("ℹ️ Phản hồi không có wait_seconds");
+      }
+      while (wait_seconds>0)
+      {
+        Serial.printf("⏳ Còn %d giây để ưu tiên được áp dụng...\n", wait_seconds);
+        delay(1000);
+        wait_seconds--;
+      }
+      digitalWrite(RELAY_PIN, HIGH); // Bật relay khi đếm ngược xong
+      Serial.println("✅ Ưu tiên đã được áp dụng! Relay BẬT.");
+      delay(5000); // Giữ relay bật trong 5 giây
+      digitalWrite(RELAY_PIN, LOW); // Tắt relay sau 5 giây
+      Serial.println("ℹ️ Relay TẮT.");
+    } else {
+      Serial.println("❌ Lỗi phân tích JSON phản hồi");
+    }
+
   } else {
     Serial.printf("⚠️ Lỗi gửi request: %s\n", http.errorToString(httpCode).c_str());
   }
@@ -70,6 +102,8 @@ void setup() {
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonInterrupt, FALLING);
   Serial.println("\nESP8266 Priority Controller 🚦");
   connectToTrafficLight();
