@@ -7,6 +7,7 @@
 #include "SD.h"
 #include "driver/i2s.h"
 #include <PubSubClient.h>
+#include <ESP32Servo.h>
 
 #define I2S_WS 25
 #define I2S_SD 22
@@ -17,29 +18,40 @@
 #define SAMPLE_RATE 16000
 #define SENSOR_PIN 34
 #define RELAY_PIN 12
-#define CLEAN_BUTTON 33   // Nút yêu cầu dọn vệ sinh
+#define CLEAN_BUTTON 36  // Nút yêu cầu dọn vệ sinh
 #define CLEAN_TIMEOUT 14400000
-#define SMOKE_PIN 35 //MP2
+#define SMOKE_PIN 35  //MP2
+#define GREEN_LED 16
+#define RED_LED 17
+#define WATER_BUTTON 39
+#define RECYCLE_PIN 33
+#define SERVO_PIN 32
 
-const char* ssid = "Thu Thanh 3";
-const char* password = "ThuThanh345@";
-const char* host = "dominical-astrid-unamusingly.ngrok-free.dev";
-const int port = 80;
+
+const char* ssid = "Smart Toilet";
+const char* password = "abcd1234";
+const char* host = "192.168.137.1";
+const int port = 5000;
 const char* path = "/upload";
 volatile bool isPlaying = false;
-const char* tb_host = "demo.thingsboard.io";  
-const int tb_port = 1883;                     
-const char* tb_token = "e5e65stwlquatjaaukx3";     
+const char* tb_host = "demo.thingsboard.io";
+const int tb_port = 1883;
+const char* tb_token = "e5e65stwlquatjaaukx3";
 
 bool cleaningRequested = false;
 unsigned long requestTime = 0;
 unsigned long data2CleanTime = 0;
+unsigned long data3RecycleTime = 0;
 unsigned long data1SmokeTime = 0;
 unsigned long data0ViolenceTime = 0;
 bool buttonState = HIGH;
 bool lastButtonState = HIGH;
+bool buttonState1 = HIGH;
+bool lastButtonState1 = HIGH;
 unsigned long lastDebounceTime = 0;
-const unsigned long debounceDelay = 50;  // chống dội nút
+unsigned long lastDebounceTime1 = 0;
+const unsigned long debounceDelay = 50;   // chống dội nút
+const unsigned long debounceDelay1 = 50;  // chống dội nút
 
 HardwareSerial mySerial(1);
 DFRobotDFPlayerMini mp3;
@@ -53,6 +65,9 @@ bool data0Violence = false;
 bool data1Smoke = false;
 bool data2Clean = false;
 int waterUseCount = 0;
+bool flag_recycle = false;
+
+Servo myServo;
 
 void connectThingsBoard() {
   tbClient.setServer(tb_host, 1883);
@@ -70,14 +85,28 @@ void connectThingsBoard() {
 
 void sendTelemetryStates() {
   if (!tbClient.connected()) connectThingsBoard();
-  String payload = "{\"DATA0\":" + String(data0Violence ? 1 : 0) +
-                   ",\"DATA1\":" + String(data1Smoke ? 1 : 0) +
-                   ",\"DATA2\":" + String(data2Clean ? 1 : 0) + "}";
+  String payload;
+  if (data0Violence)
+  {
+    payload = "{\"DATA0\":" + String(data0Violence ? 1 : 0) ;
+    data0Violence = false;
+  }
+
+  if (data1Smoke)
+  {
+    payload = payload + "{\"DATA1\":" + String(data1Smoke ? 1 : 0) ;
+    data1Smoke = false;
+  }
+
+  if (data2Clean)
+  {
+    payload = payload + "{\"DATA2\":" + String(data2Clean ? 1 : 0) ;
+    data2Clean = false;
+  }
+  //String payload = "{\"DATA0\":" + String(data0Violence ? 1 : 0) + ",\"DATA1\":" + String(data1Smoke ? 1 : 0) + ",\"DATA2\":" + String(data2Clean ? 1 : 0) + "}";
+  payload = payload + "}";
   tbClient.publish("v1/devices/me/telemetry", payload.c_str());
   Serial.println("📡 Đã gửi trạng thái 3 LED lên ThingsBoard: " + payload);
-  data0Violence = false;
-  data1Smoke = false;
-  data2Clean = false;
 }
 
 void sendWaterUsage() {
@@ -214,7 +243,7 @@ bool uploadFile(const char* filename, const char* formName) {
       }
     }
     vTaskDelay(1);
-    if (millis() - tStart > 10000) {
+    if (millis() - tStart > 20000) {
       Serial.println("⚠️ Timeout khi chờ phản hồi server!");
       break;
     }
@@ -227,7 +256,7 @@ bool uploadFile(const char* filename, const char* formName) {
   Serial.printf("Violent = %d\n", violent);
   Serial.println("-------------------------");
 
-  if ((violent == 1) && (millis()- data0ViolenceTime > 5000)) {
+  if ((violent == 1) && (millis() - data0ViolenceTime > 5000)) {
     data0ViolenceTime = millis();
     Serial.println("⚠️ Cảnh báo: Phát hiện âm thanh bạo lực!");
     isPlaying = true;
@@ -312,6 +341,11 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);  // relay (output)
   pinMode(SMOKE_PIN, INPUT);
   pinMode(CLEAN_BUTTON, INPUT_PULLUP);
+  pinMode(WATER_BUTTON, INPUT_PULLUP);
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+
+  pinMode(RECYCLE_PIN, INPUT);
 
   digitalWrite(RELAY_PIN, LOW);  // ban đầu tắt relay
 
@@ -323,7 +357,11 @@ void setup() {
 void loop() {
   tbClient.loop();
   int sensorValue = digitalRead(SENSOR_PIN);
+  int recycleValue = digitalRead(RECYCLE_PIN);
+
   int reading = digitalRead(CLEAN_BUTTON);
+  int reading1 = digitalRead(WATER_BUTTON);
+
   if (isPlaying && mp3.available()) {
     uint8_t type = mp3.readType();
     if (type == DFPlayerPlayFinished) {
@@ -333,27 +371,34 @@ void loop() {
   }
   if (sensorValue == LOW) {
     digitalWrite(RELAY_PIN, HIGH);  // bật relay
-    if (millis() - data2CleanTime >= 5000)
-    {
+    digitalWrite(GREEN_LED, HIGH);
+    if (millis() - data2CleanTime >= 3000) {
+      if (!isPlaying) {
+        isPlaying = true;
+        mp3.play(3);  // 🔊 phát âm cảnh báo khói (file 0002.mp3)
+      }
       data2CleanTime = millis();
       waterUseCount++;
       Serial.println("🚿 Phát hiện sử dụng vòi nước lần " + String(waterUseCount));
-      sendWaterUsage(); // Gửi ngay lên ThingsBoard
+      sendWaterUsage();  // Gửi ngay lên ThingsBoard
     }
   } else {
-    digitalWrite(RELAY_PIN, LOW);  // tắt relay
+    if (millis() - data2CleanTime >= 4000) {
+      digitalWrite(RELAY_PIN, LOW);  // tắt relay
+      digitalWrite(GREEN_LED, LOW);
+    }
   }
   // ====== 🚬 Phát hiện khói thuốc ======
   int smokeValue = digitalRead(SMOKE_PIN);
   //Serial.printf("💨 Giá trị khói: %d\n", smokeValue);
 
-  if ((smokeValue == HIGH) && (millis() - data1SmokeTime >= 4*60*1000)) {
+  if ((smokeValue == HIGH) && (millis() - data1SmokeTime >= 4 * 60 * 1000)) {
     data1SmokeTime = millis();
     Serial.println("🚨 Phát hiện khói thuốc!");
     //digitalWrite(RELAY_PIN, HIGH); // bật relay
     if (!isPlaying) {
       isPlaying = true;
-      mp3.play(2); // 🔊 phát âm cảnh báo khói (file 0002.mp3)
+      mp3.play(2);  // 🔊 phát âm cảnh báo khói (file 0002.mp3)
     }
 
     // 📡 Gửi event lên ThingsBoard
@@ -365,6 +410,9 @@ void loop() {
     lastDebounceTime = millis();
   }
 
+
+
+
   if ((millis() - lastDebounceTime) > debounceDelay) {
     if (reading != buttonState) {
       buttonState = reading;
@@ -374,12 +422,15 @@ void loop() {
           // Lần nhấn đầu tiên → yêu cầu dọn vệ sinh
           //cleaningRequested = true;
           requestTime = millis();
-
           Serial.println("🧽 Gửi yêu cầu dọn vệ sinh...");
           data2Clean = true;
           sendTelemetryStates();
           Serial.println("📡 Đã gửi yêu cầu dọn vệ sinh lên ThingsBoard!");
-        } 
+          if (!isPlaying) {
+            isPlaying = true;
+            mp3.play(6);  // 🔊 phát âm cảnh báo khói (file 0002.mp3)
+          }
+        }
         // else {
         //   // Lần nhấn thứ hai → xác nhận đã dọn xong
         //   cleaningRequested = false;
@@ -393,6 +444,55 @@ void loop() {
   }
   lastButtonState = reading;
 
+  if (reading1 != lastButtonState1) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime1) > debounceDelay1) {
+    if (reading1 != buttonState1) {
+      buttonState1 = reading1;
+      // Nếu nút được nhấn (LOW)
+      if (buttonState1 == LOW) {
+        if (!isPlaying) {
+          isPlaying = true;
+          mp3.play(4);  // 🔊 phát âm cảnh báo khói (file 0002.mp3)
+        }
+      }
+    }
+  }
+  lastButtonState1 = reading1;
+
+  if (recycleValue == LOW) {
+    if (flag_recycle == false) {
+      if (millis() - data3RecycleTime >= 5000) {
+        if (!isPlaying) {
+          isPlaying = true;
+          mp3.play(5);  // 🔊 phát âm cảnh báo khói (file 0002.mp3)
+        }
+        data3RecycleTime = millis();
+      }
+      myServo.attach(SERVO_PIN);
+      for (int posDegrees = 100; posDegrees >= 20; posDegrees--) {
+        myServo.write(posDegrees);
+        delay(10);
+      }
+
+      flag_recycle = true;
+    }
+
+  } else {
+    if (flag_recycle == true) {
+      if (millis() - data3RecycleTime >= 10000) {
+        for (int posDegrees = 20; posDegrees <= 100; posDegrees++) {
+          myServo.write(posDegrees);
+          delay(10);
+        }
+        flag_recycle = false;
+        myServo.detach();
+      }
+    }
+  }
+
   // Kiểm tra nếu sau 4 tiếng chưa dọn xong
   // if (cleaningRequested && (millis() - requestTime >= CLEAN_TIMEOUT)) {
   //   Serial.println("⚠️ 4 tiếng trôi qua, vẫn chưa dọn vệ sinh!");
@@ -402,5 +502,6 @@ void loop() {
   //   Serial.println("📡 Gửi nhắc nhở dọn vệ sinh sau 4 tiếng!");
   //   requestTime = millis();  // reset lại thời gian đếm
   // }
+
   delay(100);
 }

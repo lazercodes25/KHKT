@@ -102,32 +102,25 @@ void displayCountdown(int group0, int group1) {
 }
 
 // ==== Đèn RGB ====
-// For YELLOW use R + G together. INVERT supports common-anode (HIGH=off) wiring.
-void writeRGBPins(int rPin, int gPin, int bPin, bool r, bool g, bool b) {
-  if (INVERT) {
-    digitalWrite(rPin, r ? LOW : HIGH);
-    digitalWrite(gPin, g ? LOW : HIGH);
-    digitalWrite(bPin, b ? LOW : HIGH);
-  } else {
-    digitalWrite(rPin, r ? HIGH : LOW);
-    digitalWrite(gPin, g ? HIGH : LOW);
-    digitalWrite(bPin, b ? HIGH : LOW);
-  }
-}
-
+// ==== Đèn RGB ====
 void setRGBColor(int group, Phase phase) {
   bool r = false, g = false, b = false;
   switch (phase) {
-    case GREEN:  g = true; break;               // green
-    case YELLOW: r = true; g = true; break;     // yellow = red + green
-    case RED:    r = true; break;               // red
+    case GREEN: b = true; break;
+    case YELLOW: g = true; break;
+    case RED: r = true; break;
   }
   if (group == 0) {
-    writeRGBPins(R1_PIN, G1_PIN, B1_PIN, r, g, b);
+    digitalWrite(R1_PIN, r);
+    digitalWrite(G1_PIN, g);
+    digitalWrite(B1_PIN, b);
   } else {
-    writeRGBPins(R2_PIN, G2_PIN, B2_PIN, r, g, b);
+    digitalWrite(R2_PIN, r);
+    digitalWrite(G2_PIN, g);
+    digitalWrite(B2_PIN, b);
   }
 }
+
 int readSerialJson() {
   static String buffer = "";
 
@@ -144,11 +137,10 @@ int readSerialJson() {
         if (!gt.isNull()) {
           int g0 = gt["G0"] | -1;
           int g1 = gt["G1"] | -1;
-          // Nếu group hiện tại là pha RED, thì cập nhật GREEN_TIME theo giá trị của group đó
-          if ((currentGroup == 0 && phaseG0 == RED && g0 >= 0) || (currentGroup == 1 && phaseG1 == RED && g1 >= 0)) {
-            greenTime = (currentGroup == 0) ? g0 : g1;
+          if (g0 >= 5 && g1 >= 5) {
+            greenTime = max(g0, g1);  // đặt theo giá trị lơn nhất an toàn;
           }
-          Serial.printf("✅ Nhận JSON từ Python: G0=%d, G1=%d, cập nhật GREEN_TIME=%d\n", g0, g1, greenTime);
+          Serial.printf("✅ Cập nhật GREEN_TIME=%d từ JSON\n", greenTime);
         }
       } else {
         Serial.println("❌ JSON lỗi từ Python");
@@ -178,7 +170,6 @@ void nextPhase() {
   unsigned long e0 = (now - phaseStartTimeG[0]) / 1000;
   unsigned long e1 = (now - phaseStartTimeG[1]) / 1000;
   int greenTime = readSerialJson();
-  Serial.println(greenTime);
   if (currentGroup == 0) {
     int gDur = GREEN_TIME + (priorityActive[0] ? priorityAddSeconds : 0);
     if (phaseG0 == GREEN && e0 >= (unsigned)gDur) {
