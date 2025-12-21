@@ -5,7 +5,7 @@
 // ======================
 // ⚙️ WiFi Access Point
 // ======================
-const char* ssid = "TrafficLight_DBP_NTP";
+const char* ssid = "NgaTu_HN_NTP";
 const char* password = "12345678";
 // 🛣️ Khai báo tên tuyến đường
 String road0Name = "Điện Biên Phủ";
@@ -37,6 +37,8 @@ const byte digitCodeStd[10] = {
   B11000000, B11111001, B10100100, B10110000, B10011001,
   B10010010, B10000010, B11111000, B10000000, B10010000
 };
+int GREEN_MAX = 35;
+int GREEN_MIN = 10;
 
 bool INVERT = false;     // set true for common-anode RGB (HIGH = off)
 bool IC2_FIRST = true;   // unused for now
@@ -137,10 +139,17 @@ int readSerialJson() {
         if (!gt.isNull()) {
           int g0 = gt["G0"] | -1;
           int g1 = gt["G1"] | -1;
-          if (g0 >= 5 && g1 >= 5) {
-            greenTime = max(g0, g1);  // đặt theo giá trị lơn nhất an toàn;
+          // Nếu group hiện tại là pha RED, thì cập nhật GREEN_TIME theo giá trị của group đó
+          if (phaseG0 == RED)
+          {
+            greenTime = g0;
           }
-          Serial.printf("✅ Cập nhật GREEN_TIME=%d từ JSON\n", greenTime);
+          else
+          {
+            greenTime = g1;
+          }
+
+          Serial.printf("✅ Nhận JSON từ Python: G0=%d, G1=%d, cập nhật GREEN_TIME=%d\n", g0, g1, greenTime);
         }
       } else {
         Serial.println("❌ JSON lỗi từ Python");
@@ -160,6 +169,7 @@ int readSerialJson() {
 void requestPriority(int group, int addSecondsParam) {
   if (group < 0 || group > 1) return;
   priorityPending[group] = true;
+  int afterAddSeconds = GREEN_TIME + addSecondsParam;
   priorityAddSeconds = addSecondsParam; // update global default / used when active
   Serial.printf("⏳ Ưu tiên G%d sẽ áp dụng ở chu kỳ đỏ KẾ TIẾP (+%d s)\n", group, addSecondsParam);
 }
@@ -293,25 +303,37 @@ void handleSetRoad() {
 
   StaticJsonDocument<256> res;
 
+
   if (roadId == 3) {
-    // roadId=3: "priority for direction currently GREEN's opposite"
-    int activeGroup = (phaseG0 == GREEN) ? 0 : (phaseG1 == GREEN) ? 1 : -1;
+    // roadId=3: "priority for direction currently GREEN or YELLOW's opposite"
+    int activeGroup = (phaseG0 == GREEN || phaseG0 == YELLOW) ? 0 :
+                      (phaseG1 == GREEN || phaseG1 == YELLOW) ? 1 : -1;
+    int requestGroup = 0;
     if (activeGroup != -1) {
-      int targetGroup = (activeGroup == 0) ? 1 : 0; // opposite group
-      if (!priorityPending[targetGroup] && !priorityActive[targetGroup]) {
-        Serial.printf("⚡ roadId=3 -> set priority for G%d (opposite of current green)\n", targetGroup);
+      if (!priorityPending[activeGroup] && !priorityActive[activeGroup]) {
+        Serial.printf("⚡ roadId=3 -> set priority for G%d (opposite of current green)\n", activeGroup);
         res["status"] = "priority set";
-        res["group"] = targetGroup;
-        requestPriority(targetGroup, max(1, addSeconds));
+        res["group"] = activeGroup;
+        if (activeGroup == 0)
+        {
+          requestGroup = 1;
+          addSeconds = (int)round((float)ROAD1_DISTANCE / max(0.1f, speed));
+        }
+        else
+        {
+          requestGroup = 0;
+          addSeconds = (int)round((float)ROAD0_DISTANCE / max(0.1f, speed));
+        }
+        requestPriority(requestGroup, max(15, addSeconds));
         // compute waitSeconds: time until that group's next red begins (approx)
         unsigned long now = millis();
         unsigned long eActive = (activeGroup == 0) ? (now - phaseStartTimeG[0]) / 1000 : (now - phaseStartTimeG[1]) / 1000;
-        int activeGreenDur = GREEN_TIME + (priorityActive[activeGroup] ? priorityAddSeconds : 0);
-        int remainingActive = (phaseG0 == GREEN && activeGroup == 0) || (phaseG1 == GREEN && activeGroup == 1) ?
-                             max(0, activeGreenDur - (int)eActive) :
-                             ( ( (phaseG0 == YELLOW && activeGroup==0) || (phaseG1==YELLOW && activeGroup==1) ) ? max(0, YELLOW_TIME - (int)eActive) : 0 );
+        int remainingActive = (phaseG0 == GREEN) || (phaseG1 == GREEN) ?
+                             max(0, GREEN_TIME - (int)eActive) :
+                             ( ( (phaseG0 == YELLOW ) || (phaseG1==YELLOW) ) ?
+                              max(0, YELLOW_TIME - (int)eActive) : 0 );
         // wait until active group finishes (remainingActive) + its yellow (if still green)
-        if ( (activeGroup==0 && phaseG0==GREEN) || (activeGroup==1 && phaseG1==GREEN) ) {
+        if ( (phaseG0==GREEN) || (phaseG1==GREEN) ) {
           waitSeconds = remainingActive + YELLOW_TIME;
         } else {
           waitSeconds = remainingActive;
@@ -320,7 +342,7 @@ void handleSetRoad() {
         res["bonus_seconds"] = addSeconds + RED_TIME;
       } else {
         res["status"] = "already active/pending";
-        res["group"] = targetGroup;
+        res["group"] = activeGroup;
       }
     } else {
       res["status"] = "no active green group";
@@ -336,6 +358,7 @@ void handleSetRoad() {
     unsigned long eOpp = (group == 0) ? (now - phaseStartTimeG[1]) / 1000 : (now - phaseStartTimeG[0]) / 1000;
     Phase oppPhase = (group == 0) ? phaseG1 : phaseG0;
     int oppRemaining = 0;
+    
     if (oppPhase == GREEN) oppRemaining = max(0, GREEN_TIME - (int)eOpp);
     else if (oppPhase == YELLOW) oppRemaining = max(0, YELLOW_TIME - (int)eOpp);
     else if (oppPhase == RED) oppRemaining = max(0, RED_TIME - (int)eOpp);

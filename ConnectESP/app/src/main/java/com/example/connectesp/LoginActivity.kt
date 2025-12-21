@@ -23,7 +23,7 @@ class LoginActivity : AppCompatActivity() {
         val savedUser = readLoginInfo()
         if (savedUser != null) {
             val username = savedUser.getString("username")
-            val speed = savedUser.getInt("speed")
+            val speed = savedUser.getDouble("speed")
             startActivity(Intent(this, SsidMenu::class.java))
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             finish()
@@ -48,7 +48,7 @@ class LoginActivity : AppCompatActivity() {
 
                 getSharedPreferences("user", MODE_PRIVATE).edit()
                     .putString("username", username)
-                    .putInt("speed", speed)
+                    .putFloat("speed", speed)
                     .putString("name", name)
                     .apply()
                 saveLoginInfo(username, speed, name)
@@ -66,7 +66,7 @@ class LoginActivity : AppCompatActivity() {
 
     // ====== HÀM ĐỌC / GHI FILE login.json ======
 
-    private fun saveLoginInfo(username: String, speed: Int, name: String) {
+    private fun saveLoginInfo(username: String, speed: Float, name: String) {
         val json = JSONObject()
         json.put("username", username)
         json.put("speed", speed)
@@ -103,16 +103,16 @@ class LoginActivity : AppCompatActivity() {
         return false
     }
 
-    private fun getSpeedForUser(username: String): Int {
+    private fun getSpeedForUser(username: String): Float {
         val json = loadJSONFromAssets()
         val users = json.getJSONArray("users")
         for (i in 0 until users.length()) {
             val user = users.getJSONObject(i)
             if (user.getString("username") == username) {
-                return user.getInt("speed")
+                return user.getDouble("speed").toFloat()
             }
         }
-        return 30 // mặc định
+        return 1.0F // mặc định
     }
 
     private fun getNamerForUser(username: String): String {

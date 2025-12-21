@@ -53,8 +53,8 @@ class SsidMenu : AppCompatActivity() {
     private val roadNameMap = mapOf(
         "DBP" to "Điện Biên Phủ",
         "NTP" to "Nguyễn Tri Phương",
-        "LQ"  to "Lý Thường Kiệt",
-        "HQ"  to "Hàm Nghi"
+        "LTK"  to "Lý Thường Kiệt",
+        "HN"  to "Hàm Nghi"
         // Thêm các tuyến khác nếu cần
     )
 
@@ -160,7 +160,7 @@ class SsidMenu : AppCompatActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             progressScan.visibility = View.INVISIBLE   // 👈 Ẩn progress khi có kết quả
             val success = intent?.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false) ?: false
-            if (success) showScanResults() else tvStatus.text = "❌ Quét thất bại"
+            if (success) showScanResults() else tvStatus.text = "......"
         }
     }
 
@@ -204,7 +204,7 @@ class SsidMenu : AppCompatActivity() {
 
         val now = SystemClock.elapsedRealtimeNanos() / 1000  // microseconds
         val espNetworks = results.filter {
-            it.SSID.startsWith("TrafficLight_", ignoreCase = true) &&
+            it.SSID.startsWith("NgaTu_", ignoreCase = true) &&
                     (now - it.timestamp) < 2000000  // chỉ giữ kết quả trong 5 giây gần nhất
         }
 
@@ -227,7 +227,7 @@ class SsidMenu : AppCompatActivity() {
         val ssid = scanResult.SSID
         if (ssid.isNullOrBlank()) return
 
-        val codes = ssid.substringAfter("TrafficLight_", "Không rõ")
+        val codes = ssid.substringAfter("NgaTu_", "Không rõ")
         val codeParts = codes.split("_")
         val displayName = codeParts.joinToString(" - ") { code ->
             roadNameMap[code] ?: code

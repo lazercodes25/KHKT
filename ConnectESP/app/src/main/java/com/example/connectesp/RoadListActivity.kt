@@ -36,6 +36,8 @@ class RoadListActivity : AppCompatActivity() {
     private lateinit var prefs: android.content.SharedPreferences
     private val PREF_KEY_G0_NAME = "road_g0_name"
     private val PREF_KEY_G1_NAME = "road_g1_name"
+    private var updateHandler: Handler? = null
+    private var updateRunnable: Runnable? = null
 
     private var isConnected = false
     private val handler = Handler(Looper.getMainLooper())
@@ -115,6 +117,11 @@ class RoadListActivity : AppCompatActivity() {
     }
 
 
+    private fun stopUpdate() {
+        updateHandler?.removeCallbacks(updateRunnable ?: return)
+        updateHandler = null
+        updateRunnable = null
+    }
     // 🛰️ Lấy trạng thái đèn từ ESP32
     private fun loadRoads() {
         EspApiClient.get("/status") { response ->
@@ -201,22 +208,32 @@ class RoadListActivity : AppCompatActivity() {
     // 🚦 Gửi yêu cầu ưu tiên đường
     private fun sendSetRoad(roadId: Int) {
         val prefs = getSharedPreferences("user", MODE_PRIVATE)
-        val speed = prefs.getInt("speed", 30)
+        val speed = prefs.getFloat("speed", 1.0F)
         val roadIdEsp = if (roadId == 0) 2 else 1 // ESP dùng 1 hoặc 2
 
-        val json = """{"roadId":$roadIdEsp, "speed":$speed}"""
+        val json = """{"roadId":$roadIdEsp, "speed":${speed.toDouble()}}"""
 
         EspApiClient.postJson("/set_road", json) { response ->
             runOnUiThread {
                 try {
                     val jsonRes = JSONObject(response)
-                    when (jsonRes.optString("status")) {
+                    val status = jsonRes.optString("status")
+                    when (status) {
                         "ok" -> {
                             val wait = jsonRes.optInt("wait_seconds")
                             val bonus = jsonRes.optInt("bonus_seconds")
-                            showPriorityDialog(wait, bonus)
+                            val oppRemaining = jsonRes.optInt("oppRemaining", -1)
+                            val redCase = jsonRes.optInt("RedCase", 0)
+                            showPriorityDialog(wait, bonus,oppRemaining, redCase == 1)
                         }
-                        "waiting" -> Snackbar.make(rootLayout, "⏳ Đang chờ đường khác...", Snackbar.LENGTH_SHORT).show()
+                        "speed not higher than previous" ->
+                        {
+                            Snackbar.make(rootLayout, "Đã gửi yêu cầu ưu tiên.", Snackbar.LENGTH_SHORT).show()
+                            val intent = Intent(this, SsidMenu::class.java)
+                            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(intent)
+                            finish()
+                        }
                         else -> Snackbar.make(rootLayout, "⚠️ Không xác định: $response", Snackbar.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
@@ -227,7 +244,7 @@ class RoadListActivity : AppCompatActivity() {
     }
     // 💬 Hộp thoại hiển thị thời gian ưu tiên
     @SuppressLint("SetTextI18n")
-    private fun showPriorityDialog(wait: Int, bonus: Int) {
+    private fun showPriorityDialog(wait: Int, bonus: Int, oppRemaining: Int, isRedCase: Boolean) {
         // Phát hiện dark mode
         val isDarkMode = (resources.configuration.uiMode and
                 android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
@@ -254,15 +271,15 @@ class RoadListActivity : AppCompatActivity() {
         }
 
         // Text bonus time
-        val bonusText = TextView(this).apply {
-            text = "🚦 Thời gian đèn đỏ ưu tiên: ${bonus}s"
-            textSize = 18f
-            setTextColor(textColor)
-            setPadding(0, 16, 0, 0)
-            gravity = Gravity.CENTER
-        }
+//        val bonusText = TextView(this).apply {
+//            text = "🚦 Thời gian đèn đỏ ưu tiên : ${bonus}s"
+//            textSize = 18f
+//            setTextColor(textColor)
+//            setPadding(0, 16, 0, 0)
+//            gravity = Gravity.CENTER
+//        }
         view.addView(waitText)
-        view.addView(bonusText)
+        //view.addView(bonusText)
 
         // Tạo dialog
         val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
@@ -284,6 +301,72 @@ class RoadListActivity : AppCompatActivity() {
             override fun onTick(millisUntilFinished: Long) {
                 val secondsLeft = (millisUntilFinished / 1000).toInt()
                 waitText.text = "⏳ Thời gian chờ: ${secondsLeft}s"
+                // 🔥 DÒNG NÀY LÀ NƠI BẮT ĐẦU UPDATE
+                if (isRedCase && (wait - secondsLeft) >= oppRemaining + 1) {
+                    EspApiClient.get("/update") { apiRes ->
+                        try {
+                            val json = JSONObject(apiRes)
+                            val newGreenTime = json.optInt("green_time", secondsLeft)
+
+                            // Nếu server trả thời gian khác → cập nhật timer
+                            if (newGreenTime != secondsLeft) {
+                                runOnUiThread {
+                                    waitText.text = "⏳ Thời gian chờ: ${newGreenTime}s"
+                                }
+
+                                // Reset timer
+                                cancel()
+                                startNewTimer(newGreenTime, bonus, waitText, dialog)
+                            }
+
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            private fun startNewTimer(newWait: Int, bonus: Int, waitText: TextView, dialog: androidx.appcompat.app.AlertDialog) {
+                object : CountDownTimer((newWait + 3) * 1000L, 900L) {
+                    override fun onTick(millisUntilFinished: Long) {
+                        val secondsLeft = (millisUntilFinished / 1000).toInt()
+                        waitText.text = "⏳ Thời gian chờ: ${secondsLeft}s"
+                    }
+                    @RequiresPermission(Manifest.permission.VIBRATE)
+                    @SuppressLint("ServiceCast", "SuspiciousIndentation")
+                    override fun onFinish() {
+                        waitText.text = "✅ Đã đến lượt ưu tiên!"
+                        waitText.setTextColor(Color.parseColor("#E91E63"))
+                        waitText.textSize = 22f
+                        // 🔊 Phát âm thanh thông báo
+                        try {
+                            val mediaPlayer = MediaPlayer.create(this@RoadListActivity, R.raw.priority_alert)
+                            mediaPlayer?.start()
+                            mediaPlayer?.setOnCompletionListener {
+                                it.release()
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                        // Rung nhẹ 300ms
+                        // 💥 Rung lặp từng đợt cho đến khi dialog đóng
+                        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+
+                        // Mẫu rung: [rung, nghỉ, rung, nghỉ, ...]
+                        val pattern = longArrayOf(0, 500, 300, 500, 300) // ms
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            val effect = VibrationEffect.createWaveform(pattern, 3) // 0 = lặp vô hạn
+                            vibrator.vibrate(effect)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            vibrator.vibrate(pattern, 6) // lặp vô hạn trên Android cũ
+                        }
+
+                        // 🧩 Dừng rung khi dialog bị đóng
+                        dialog.setOnDismissListener {
+                            vibrator.cancel()
+                        }
+                    }
+                }.start()
             }
 
             @RequiresPermission(Manifest.permission.VIBRATE)
@@ -310,11 +393,11 @@ class RoadListActivity : AppCompatActivity() {
                 val pattern = longArrayOf(0, 500, 300, 500, 300) // ms
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    val effect = VibrationEffect.createWaveform(pattern, 0) // 0 = lặp vô hạn
+                    val effect = VibrationEffect.createWaveform(pattern, 3) // 0 = lặp vô hạn
                     vibrator.vibrate(effect)
                 } else {
                     @Suppress("DEPRECATION")
-                    vibrator.vibrate(pattern, 0) // lặp vô hạn trên Android cũ
+                    vibrator.vibrate(pattern, 6) // lặp vô hạn trên Android cũ
                 }
 
                 // 🧩 Dừng rung khi dialog bị đóng
@@ -328,12 +411,10 @@ class RoadListActivity : AppCompatActivity() {
         runOnUiThread {
             val builder = androidx.appcompat.app.AlertDialog.Builder(this)
             builder.setTitle("⚠️ Mất kết nối thiết bị")
-            builder.setMessage("Thiết bị ESP32 đã bị ngắt kết nối.\nBạn sẽ trở lại màn hình chọn Wi-Fi.")
+            builder.setMessage("Thiết bị đèn giao thông đã bị ngắt kết nối.\nBạn sẽ trở lại màn hình chọn Đèn.")
 
             builder.setCancelable(false)
             builder.setPositiveButton("Đóng") { _, _ ->
-                // Dừng các tiến trình cập nhật nếu có
-                stopUpdateTask()
 
                 // Quay lại màn hình chọn SSID
                 val intent = Intent(this, SsidMenu::class.java)

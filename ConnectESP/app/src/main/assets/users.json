@@ -1,7 +1,7 @@
 {
   "users": [
-    { "username": "duy", "password": "123456", "speed": 1, "name": "Nguyễn Khánh Duy" },
-    { "username": "linh", "password": "654321", "speed": 1.2, "name": "Trần Bảo Linh" },
-    { "username": "admin", "password": "admin", "speed": 2, "name": "Quản trị viên" }
+    { "username": "phuoc", "password": "654321", "speed": 0.6, "name": "Tô Đăng Phước" },
+    { "username": "admin", "password": "admin", "speed": 1.0, "name": "Quản trị viên" },
+    { "username": "khang", "password": "123456", "speed": 0.9, "name": "Phan Tịnh Khang" }
   ]
 }

@@ -1,0 +1,14 @@
+# YOLOv8
+ultralytics>=8.3.0
+
+# OpenCV
+opencv-python>=4.8.1
+
+# Supervision (tracking, annotators)
+supervision>=0.25.0
+
+# Các thư viện hỗ trợ khác
+numpy>=1.25.0
+tqdm>=4.65.0
+pyserial
+flask

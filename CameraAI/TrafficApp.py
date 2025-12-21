@@ -14,8 +14,8 @@ from tkinter import ttk, messagebox
 
 # ==== CAMERA CONFIG ====
 cameras = [
-    {"source": "0", "port": 8000},
-    {"source": "1", "port": 8001},
+    {"source": "1", "port": 8000},
+    {"source": "2", "port": 8001},
 ]
 VENV_DIR = os.path.join(os.path.dirname(__file__), ".venv")
 
@@ -200,9 +200,9 @@ class App:
                         resp = requests.get(f"http://127.0.0.1:{cam['port']}/total_vehicle", timeout=1)
                         if resp.status_code == 200:
                             data = resp.json()
-                            if cam["source"] == "0":
-                                total_G0 = data.get("total_vehicle", 0)
                             if cam["source"] == "1":
+                                total_G0 = data.get("total_vehicle", 0)
+                            if cam["source"] == "2":
                                 total_G1 = data.get("total_vehicle", 0)
                     except:
                         pass
