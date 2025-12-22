@@ -1,8 +1,8 @@
 from flask import Flask, request, jsonify
 import os
 import google.generativeai as genai
-from pydub import AudioSegment
-
+import json
+import re
 # ==============================
 # ⚙️ Cấu hình
 # ==============================
@@ -10,7 +10,35 @@ genai.configure(api_key="AIzaSyAxxLYwVLvPgpLi4oWWzfrWmLamfI3fSEw")
 model = genai.GenerativeModel("gemini-2.5-flash")
 UPLOAD_FOLDER = "media"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-PROMPT = "Transcribe this audio to Vietnamese text only. No explanation."
+PROMPT = """
+Analyze this audio and respond in Vietnamese ONLY.
+
+Tasks:
+1. Transcribe spoken words to Vietnamese text (if any).
+2. Detect the following:
+   - Loud or abnormally high volume
+   - Sudden impact / collision sounds
+   - Screaming or shouting
+   - Violence expressed through spoken words
+Response Format:
+No text before or after JSON.
+Do NOT include explanations, comments, or markdown.
+Return STRICT JSON ONLY.
+
+JSON schema:
+{
+  "text": "<Vietnamese transcription or empty string>",
+  "loud": 0 or 1,
+  "impact": 0 or 1,
+  "scream": 0 or 1,
+  "violence_words": 0 or 1
+}
+"""
+def extract_json(text):
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        return None
+    return match.group(0)
 
 # ==============================
 # 🚀 Flask App
@@ -44,25 +72,16 @@ def upload_audio():
             audio_data,
             PROMPT
         ])
-
-        # ✅ Truy cập an toàn phần text
-        text = ""
-        if hasattr(response, "candidates") and response.candidates:
-            parts = response.candidates[0].content.parts
-            if parts and hasattr(parts[0], "text"):
-                text = parts[0].text.strip().lower()
-
-        print("Transcription:", text)
-
-        # ⚠️ Nếu rỗng hoặc không có tiếng
-        if not text:
-            return "0"
-
-        # 🔍 Kiểm tra từ khóa bạo lực
-        violence_words = ["giết", "đánh", "chém", "bắn", "máu", "chết", "đấm", "cướp", "bạo lực"]
-        violence_flag = 1 if any(word in text for word in violence_words) else 0
-
-        return "0" if violence_flag == 0 else "1"
+        raw = response.text.strip()
+        json_str = extract_json(raw)
+        print("AI Response:", json_str)
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            return jsonify({"error": "Invalid AI JSON"}), 500
+        
+        return jsonify(data)
+        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
