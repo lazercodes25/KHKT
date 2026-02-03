@@ -6,7 +6,8 @@ import re
 # ==============================
 # ⚙️ Cấu hình
 # ==============================
-genai.configure(api_key="AIzaSyAxxLYwVLvPgpLi4oWWzfrWmLamfI3fSEw")
+# genai.configure(api_key="AIzaSyCTH0SHERh58RqH29PWFTvOAWiHYYAQoCg")
+genai.configure(api_key="AIzaSyCTH0SHERh58RqH29PWFTvOAWiHYYAQoCg")
 model = genai.GenerativeModel("gemini-2.5-flash")
 UPLOAD_FOLDER = "media"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
