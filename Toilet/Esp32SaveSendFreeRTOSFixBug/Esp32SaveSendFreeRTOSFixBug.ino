@@ -31,14 +31,14 @@
 #define EVIRONMENT_PIN 35
 
 
-const char* ssid = "Smart Toilet";
-const char* password = "abcd1234";
+const char* ssid = "Nha Tro2";
+const char* password = "nhatro123123@";
 const char* host = "192.168.137.1";
 const int port = 5000;
 const char* path = "/upload";
 volatile bool isPlaying = false;
 // URL API Vercel, ví dụ: https://toilet-dashboard.vercel.app/api/telemetry
-const char* web_url = "https://YOUR-PROJECT.vercel.app/api/telemetry";
+const char* web_url = "https://smart-toilet-aiot.vercel.app/api/telemetry";
 const char* web_device_key = "demo-key"; // phải trùng TOILET_DEVICE_KEY trên Vercel
 
 bool cleaningRequested = false;
