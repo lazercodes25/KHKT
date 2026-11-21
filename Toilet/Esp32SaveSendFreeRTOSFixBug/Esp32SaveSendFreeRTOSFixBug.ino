@@ -31,8 +31,8 @@
 #define EVIRONMENT_PIN 35
 
 
-const char* ssid = "Nha Tro2";
-const char* password = "nhatro123123@";
+const char* ssid = "Smart Toilet";
+const char* password = "abcd1234";
 const char* host = "192.168.137.1";
 const int port = 5000;
 const char* path = "/upload";
@@ -68,13 +68,19 @@ DFRobotDFPlayerMini mp3;
 
 // Queue chứa tên file cần upload
 QueueHandle_t uploadQueue;
-bool data0Violence = false;
+int  data0Violence = 0;
+bool data0ViolenceAlert = false;
 int  data1Smoke = 0;
-bool data2Clean = false;
-bool data3Loud = false;
-bool data4Impact = false;
-bool data5Scream = false;
-bool data6NH3 = false;
+int  data2Clean = 0;
+int  data3Loud = 0;
+int  data4Impact = 0;
+int  data5Scream = 0;
+int  data6NH3 = 0;
+bool data2CleanAlert = false;
+bool data3LoudAlert = false;
+bool data4ImpactAlert = false;
+bool data5ScreamAlert = false;
+bool data6NH3Alert = false;
 
 int waterUseCount = 0;
 bool flag_recycle = false;
@@ -115,10 +121,10 @@ void sendTelemetryStates() {
   String payload;
   payload = payload + "{\"DATA1\":" + String(data1Smoke);
   //sendEventToThingsBoard("VIOLENCE");
-  if (data0Violence)
+  if (data0ViolenceAlert)
   {
-    payload = payload + ",\"DATA0\":" + String(data0Violence ? 1 : 0) ;
-    data0Violence = false;
+    payload = payload + ",\"DATA0\":" + String(data0Violence) ;
+    data0ViolenceAlert = false;
   }
 
   if (data1Smoke)
@@ -127,30 +133,30 @@ void sendTelemetryStates() {
     //data1Smoke = false;
   }
 
-  if (data2Clean)
+  if (data2CleanAlert)
   {
-    payload = payload + ",\"DATA2\":" + String(data2Clean ? 1 : 0) ;
-    data2Clean = false;
+    payload = payload + ",\"DATA2\":" + String(data2Clean) ;
+    data2CleanAlert = false;
   }
-  if (data3Loud)
+  if (data3LoudAlert)
   {
-    payload = payload + ",\"DATA3\":" + String(data3Loud ? 1 : 0) ;
-    data3Loud = false;
+    payload = payload + ",\"DATA3\":" + String(data3Loud) ;
+    data3LoudAlert = false;
   }
-  if (data4Impact)
+  if (data4ImpactAlert)
   {
-    payload = payload + ",\"DATA4\":" + String(data4Impact ? 1 : 0) ;
-    data4Impact = false;
+    payload = payload + ",\"DATA4\":" + String(data4Impact) ;
+    data4ImpactAlert = false;
   }
-  if (data5Scream)
+  if (data5ScreamAlert)
   {
-    payload = payload + ",\"DATA5\":" + String(data5Scream ? 1 : 0);
-    data5Scream = false;
+    payload = payload + ",\"DATA5\":" + String(data5Scream);
+    data5ScreamAlert = false;
   }
-  if (data6NH3)
+  if (data6NH3Alert)
   {
-    payload = payload + ",\"DATA6\":" + String(data6NH3 ? 1 : 0);
-    data6NH3 = false;
+    payload = payload + ",\"DATA6\":" + String(data6NH3);
+    data6NH3Alert = false;
   }
   payload = payload + "}";
   sendToWeb(String("{\"device_id\":\"toilet-01\",\"values\":") + payload.substring(payload.indexOf('{')) + "}");
@@ -213,6 +219,14 @@ bool recordAudio(const char* filename) {
   int32_t samples[512];
   size_t bytesRead;
   while (millis() - start < RECORD_TIME) {
+    // Cảnh báo có độ ưu tiên cao hơn ghi âm. Bỏ file chưa hoàn chỉnh
+    // để âm thanh từ DFPlayer được phát tức thì.
+    if (isPlaying) {
+      f.close();
+      SD.remove(filename);
+      Serial.println("⚠️ Có cảnh báo -> dừng ghi âm để phát âm thanh ngay");
+      return false;
+    }
     i2s_read(I2S_PORT, (void*)samples, sizeof(samples), &bytesRead, portMAX_DELAY);
     for (int i = 0; i < bytesRead / 4; i++) {
       int16_t s = samples[i] >> 14;
@@ -319,18 +333,21 @@ bool uploadFile(const char* filename, const char* formName) {
   // data4Impact  = doc["impact"] == 1; // va cham
   // data5Scream  = doc["scream"] == 1; // tieng het
   // data0Violence = doc["violence_words"] == 1; // ngon tu bao luc
-    data3Loud      = root["loud"] == 1;
-  data4Impact   = root["impact"] == 1;
-  data5Scream   = root["scream"] == 1;
-  data0Violence = root["violence_words"] == 1;
+  if (root["loud"] == 1) { data3Loud++; data3LoudAlert = true; }
+  if (root["impact"] == 1) { data4Impact++; data4ImpactAlert = true; }
+  if (root["scream"] == 1) { data5Scream++; data5ScreamAlert = true; }
+  if (root["violence_words"] == 1) {
+    data0Violence++;
+    data0ViolenceAlert = true;
+  }
 
-  handleAlert(data0Violence, data0ViolenceTime, 1);
+  handleAlert(data0ViolenceAlert, data0ViolenceTime, 1);
 
-  handleAlert(data5Scream, data5ScreamTime, 2);
+  handleAlert(data5ScreamAlert, data5ScreamTime, 8); //khong gay go danh nhau 9: vui long khong cai nhau trong nha ve sinh
 
-  handleAlert(data3Loud, data3LoudTime, 3);
+  handleAlert(data3LoudAlert, data3LoudTime, 9);
 
-  handleAlert(data4Impact, data4ImpactTime, 4);
+  handleAlert(data4ImpactAlert, data4ImpactTime, 8);
 
   sendTelemetryStates();
 
@@ -348,6 +365,7 @@ void TaskRecord(void* param) {
     }
     sprintf(filename, "/record%d.wav", index);
     Serial.printf("🎙️ Ghi âm file %s ...\n", filename);
+
     if (recordAudio(filename)) {
       Serial.println("✅ Ghi âm xong, thêm vào hàng đợi upload");
       xQueueSend(uploadQueue, &filename, portMAX_DELAY);
@@ -418,9 +436,9 @@ void setup() {
   digitalWrite(RELAY_PIN, LOW);  // ban đầu tắt relay
 
   uploadQueue = xQueueCreate(10, sizeof(char[20]));
-  // Không cần ghi âm/upload WAV cho dashboard hiện tại.
-  // xTaskCreatePinnedToCore(TaskRecord, "Record", 8192, NULL, 2, NULL, 1);
-  // xTaskCreatePinnedToCore(TaskUpload, "Upload", 16384, NULL, 3, NULL, 0);
+  // Bật ghi âm và upload WAV.
+  xTaskCreatePinnedToCore(TaskRecord, "Record", 8192, NULL, 2, NULL, 1);
+  xTaskCreatePinnedToCore(TaskUpload, "Upload", 16384, NULL, 3, NULL, 0);
 }
 
 void loop() {
@@ -445,7 +463,8 @@ void loop() {
       isPlaying = true;
       mp3.play(7);  // 🔊 phát âm thanh NH3
     }
-    data6NH3 = true;
+    data6NH3++;
+    data6NH3Alert = true;
     sendTelemetryStates();
     Serial.println("📡 Đã gửi cảnh báo NH3 lên ThingsBoard!");
   }
@@ -507,7 +526,8 @@ void loop() {
           //cleaningRequested = true;
           requestTime = millis();
           Serial.println("🧽 Gửi yêu cầu dọn vệ sinh...");
-          data2Clean = true;
+          data2Clean++;
+          data2CleanAlert = true;
           sendTelemetryStates();
           Serial.println("📡 Đã gửi yêu cầu dọn vệ sinh lên ThingsBoard!");
           if (!isPlaying) {
