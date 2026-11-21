@@ -7,7 +7,8 @@
 #include "FS.h"
 #include "SD.h"
 #include "driver/i2s.h"
-#include <PubSubClient.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ESP32Servo.h>
 
 #define I2S_WS 25
@@ -36,9 +37,9 @@ const char* host = "192.168.137.1";
 const int port = 5000;
 const char* path = "/upload";
 volatile bool isPlaying = false;
-const char* tb_host = "demo.thingsboard.io";
-const int tb_port = 1883;
-const char* tb_token = "e5e65stwlquatjaaukx3";
+// URL API Vercel, ví dụ: https://toilet-dashboard.vercel.app/api/telemetry
+const char* web_url = "https://YOUR-PROJECT.vercel.app/api/telemetry";
+const char* web_device_key = "demo-key"; // phải trùng TOILET_DEVICE_KEY trên Vercel
 
 bool cleaningRequested = false;
 unsigned long requestTime = 0;
@@ -67,9 +68,6 @@ DFRobotDFPlayerMini mp3;
 
 // Queue chứa tên file cần upload
 QueueHandle_t uploadQueue;
-WiFiClient espClient;
-PubSubClient tbClient(espClient);
-
 bool data0Violence = false;
 int  data1Smoke = 0;
 bool data2Clean = false;
@@ -83,36 +81,37 @@ bool flag_recycle = false;
 
 Servo myServo;
 
-void connectThingsBoard() {
-  tbClient.setServer(tb_host, 1883);
-  while (!tbClient.connected()) {
-    Serial.print("🔌 Kết nối ThingsBoard...");
-    if (tbClient.connect("ESP32_Device", tb_token, NULL)) {
-      Serial.println("✅ OK");
-    } else {
-      Serial.print("❌ lỗi: ");
-      Serial.println(tbClient.state());
-      delay(2000);
-    }
+bool sendToWeb(String payload) {
+  WiFiClientSecure client;
+  client.setInsecure(); // Dùng được với ESP32; production nên dùng chứng chỉ CA.
+  HTTPClient http;
+  if (!http.begin(client, web_url)) {
+    Serial.println("❌ Không mở được API web");
+    return false;
   }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", web_device_key);
+  int code = http.POST(payload);
+  Serial.printf("🌐 API web trả về HTTP %d\n", code);
+  http.end();
+  return code >= 200 && code < 300;
 }
 
 void handleAlert(bool &flag,
                  unsigned long &lastTime,
                  uint8_t mp3Index)
 {
-  // if (flag && (millis() - lastTime > ALERT_COOLDOWN)) {
-  //   lastTime = millis();
+  if (flag && (millis() - lastTime > 3000)) {
+    lastTime = millis();
 
-    //isPlaying = true;
-    //mp3.play(mp3Index);
+    isPlaying = true;
+    mp3.play(mp3Index);
 
-    //sendTelemetryStates();
-  // }
+    sendTelemetryStates();
+  }
 }
 
 void sendTelemetryStates() {
-  if (!tbClient.connected()) connectThingsBoard();
   String payload;
   payload = payload + "{\"DATA1\":" + String(data1Smoke);
   //sendEventToThingsBoard("VIOLENCE");
@@ -154,15 +153,14 @@ void sendTelemetryStates() {
     data6NH3 = false;
   }
   payload = payload + "}";
-  tbClient.publish("v1/devices/me/telemetry", payload.c_str());
-  Serial.println("📡 Đã gửi trạng thái lên ThingsBoard: " + payload);
+  sendToWeb(String("{\"device_id\":\"toilet-01\",\"values\":") + payload.substring(payload.indexOf('{')) + "}");
+  Serial.println("📡 Đã gửi trạng thái lên web: " + payload);
 }
 
 void sendWaterUsage() {
-  if (!tbClient.connected()) connectThingsBoard();
   String payload = "{\"DATA7\":" + String(waterUseCount) + "}";
-  tbClient.publish("v1/devices/me/telemetry", payload.c_str());
-  Serial.println("📡 Đã gửi số lần sử dụng vòi nước lên ThingsBoard: " + String(waterUseCount));
+  sendToWeb(String("{\"device_id\":\"toilet-01\",\"values\":") + payload + "}");
+  Serial.println("📡 Đã gửi số lần sử dụng vòi nước lên web: " + String(waterUseCount));
 }
 
 void writeWavHeader(File file, uint32_t sampleRate, uint32_t dataSize) {
@@ -299,12 +297,22 @@ bool uploadFile(const char* filename, const char* formName) {
   }
   response.trim();
 
-  StaticJsonBuffer<256> jsonBuffer;
-  JsonObject& root = jsonBuffer.parseObject(response);
+  // ArduinoJson 7: StaticJsonBuffer/parseObject() belong to ArduinoJson 5.
+  JsonDocument jsonDocument;
+  DeserializationError jsonError = deserializeJson(jsonDocument, response);
 
 
   Serial.println("---- Server response ----");
   Serial.println(response);
+
+  if (jsonError) {
+    Serial.print("Loi phan tich JSON: ");
+    Serial.println(jsonError.c_str());
+    client.stop();
+    return false;
+  }
+
+  JsonObject root = jsonDocument.as<JsonObject>();
 
   // Lấy dữ liệu từ server
   // data3Loud     = doc["loud"] == 1; // âm thanh lớn
@@ -410,12 +418,12 @@ void setup() {
   digitalWrite(RELAY_PIN, LOW);  // ban đầu tắt relay
 
   uploadQueue = xQueueCreate(10, sizeof(char[20]));
-  xTaskCreatePinnedToCore(TaskRecord, "Record", 8192, NULL, 2, NULL, 1);
-  xTaskCreatePinnedToCore(TaskUpload, "Upload", 16384, NULL, 3, NULL, 0);
+  // Không cần ghi âm/upload WAV cho dashboard hiện tại.
+  // xTaskCreatePinnedToCore(TaskRecord, "Record", 8192, NULL, 2, NULL, 1);
+  // xTaskCreatePinnedToCore(TaskUpload, "Upload", 16384, NULL, 3, NULL, 0);
 }
 
 void loop() {
-  tbClient.loop();
   if (isPlaying && mp3.available()) {
     uint8_t type = mp3.readType();
     if (type == DFPlayerPlayFinished) {

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Toilet</title>
+  <style>
+    body{font-family:Arial,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;background:#f4f7fb;color:#172033}
+    h1{margin-bottom:4px}.muted{color:#687386}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:24px 0}
+    .card,.events{background:white;border-radius:12px;padding:16px;box-shadow:0 2px 10px #17203312}.value{font-size:28px;font-weight:bold;margin-top:8px}
+    .event{padding:12px 0;border-bottom:1px solid #e8edf3}.event:last-child{border:0}.ok{color:#16834a}
+  </style>
+</head>
+<body>
+  <h1>Smart Toilet</h1><div class="muted">Thiết bị: <span id="device">đang tải...</span> · <span id="time">chưa có dữ liệu</span></div>
+  <div class="grid" id="cards"></div>
+  <section class="events"><h2>Thông báo gần đây</h2><div id="events">Chưa có thông báo.</div></section>
+  <script>
+    const names={DATA0:'Bạo lực',DATA1:'Khói thuốc',DATA2:'Dọn vệ sinh',DATA3:'Âm thanh lớn',DATA4:'Va chạm',DATA5:'Tiếng hét',DATA6:'Khí NH3',DATA7:'Lần dùng vòi nước'};
+    async function refresh(){try{const d=await fetch('/api/telemetry').then(r=>r.json());document.querySelector('#device').textContent=d.device_id;document.querySelector('#time').textContent=new Date(d.received_at).toLocaleString('vi-VN');document.querySelector('#cards').innerHTML=Object.entries(d.values||{}).map(([k,v])=>`<div class="card"><div>${names[k]||k}</div><div class="value">${v}</div></div>`).join('');document.querySelector('#events').innerHTML=(d.events||[]).map(e=>`<div class="event"><b>${e.label}</b>: ${e.value}<br><small class="muted">${new Date(e.received_at).toLocaleString('vi-VN')}</small></div>`).join('')||'Chưa có thông báo.'}catch(e){document.querySelector('#events').textContent='Không kết nối được API';}}refresh();setInterval(refresh,3000);
+  </script>
+</body>
+</html>
